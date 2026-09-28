@@ -1,68 +1,57 @@
 package com.restaurant.model;
 
-import com.restaurant.enums.OrderChannel;
 import com.restaurant.enums.OrderStatus;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
 public class Order {
-    private final String id;
-    private final OrderChannel channel;
-    private final LocalDateTime placedAt;
-    private OrderStatus status;
+    private final String orderId;
     private final List<OrderItem> items;
+    private OrderStatus status;
+    private final long placedTimestamp;
 
-    public Order(String id, OrderChannel channel) {
-        this.id = Objects.requireNonNull(id, "Order ID cannot be null");
-        this.channel = Objects.requireNonNull(channel, "OrderChannel cannot be null");
-        this.placedAt = LocalDateTime.now();
-        this.status = OrderStatus.RECEIVED;
+    public Order(String orderId) {
+        this.orderId = Objects.requireNonNull(orderId, "Order ID cannot be null");
         this.items = new ArrayList<>();
+        this.status = OrderStatus.PLACED;
+        this.placedTimestamp = Instant.now().toEpochMilli();
     }
 
-    public String getId() {
-        return id;
+    public String getOrderId() {
+        return orderId;
     }
 
-    public OrderChannel getChannel() {
-        return channel;
-    }
-
-    public LocalDateTime getPlacedAt() {
-        return placedAt;
-    }
-
-    public synchronized OrderStatus getStatus() {
-        return status;
-    }
-
-    public synchronized void updateStatus(OrderStatus newStatus) {
-        this.status = Objects.requireNonNull(newStatus, "OrderStatus cannot be null");
-    }
-
-    public synchronized void addItem(OrderItem item) {
-        Objects.requireNonNull(item, "OrderItem cannot be null");
-        if (status != OrderStatus.RECEIVED) {
-            throw new IllegalStateException("Cannot add items to an order that is already " + status);
-        }
-        this.items.add(item);
-    }
-
-    public synchronized List<OrderItem> getItems() {
+    public List<OrderItem> getItems() {
         return Collections.unmodifiableList(items);
     }
 
-    public synchronized BigDecimal calculateSubtotal() {
-        BigDecimal total = BigDecimal.ZERO;
-        for (OrderItem item : items) {
-            total = total.add(item.getSubtotal());
+    public OrderStatus getStatus() {
+        return status;
+    }
+
+    public long getPlacedTimestamp() {
+        return placedTimestamp;
+    }
+
+    public synchronized void addItem(OrderItem item) {
+        Objects.requireNonNull(item, "Order item cannot be null");
+        if (status != OrderStatus.PLACED) {
+            throw new IllegalStateException("Cannot add items to an order that is already " + status);
         }
-        return total;
+        items.add(item);
+    }
+
+    public synchronized void updateStatus(OrderStatus newStatus) {
+        this.status = Objects.requireNonNull(newStatus, "Order status cannot be null");
+    }
+
+    public double calculateSubtotal() {
+        return items.stream()
+                .mapToDouble(OrderItem::getSubtotal)
+                .sum();
     }
 }
-

@@ -1,7 +1,5 @@
 package com.restaurant.model;
 
-import com.restaurant.enums.DietaryType;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -9,55 +7,48 @@ import java.util.Objects;
 import java.util.Optional;
 
 public class Menu {
-    private final String id;
+    private final String menuId;
     private final String name;
-    private final List<MenuCourse> menuCourses;
+    private final List<MenuSection> sections;
 
-    public Menu(String id, String name) {
-        this.id = Objects.requireNonNull(id, "Menu ID cannot be null");
-        this.name = Objects.requireNonNull(name, "Menu name cannot be null");
-        this.menuCourses = new ArrayList<>();
+    public Menu(String menuId, String name) {
+        this(menuId, name, new ArrayList<>());
     }
 
-    public String getId() {
-        return id;
+    public Menu(String menuId, String name, List<MenuSection> sections) {
+        this.menuId = Objects.requireNonNull(menuId, "Menu ID cannot be null");
+        this.name = Objects.requireNonNull(name, "Menu name cannot be null");
+        this.sections = new ArrayList<>(Objects.requireNonNull(sections, "Sections cannot be null"));
+    }
+
+    public String getMenuId() {
+        return menuId;
     }
 
     public String getName() {
         return name;
     }
 
-    public List<MenuCourse> getMenuCourses() {
-        return Collections.unmodifiableList(menuCourses);
+    public List<MenuSection> getSections() {
+        return Collections.unmodifiableList(sections);
     }
 
-    public void addMenuCourse(MenuCourse menuCourse) {
-        Objects.requireNonNull(menuCourse, "MenuCourse cannot be null");
-        this.menuCourses.add(menuCourse);
+    public void addSection(MenuSection section) {
+        Objects.requireNonNull(section, "Menu section cannot be null");
+        sections.add(section);
     }
 
-    public Optional<MenuItem> findMenuItemById(String menuItemId) {
-        for (MenuCourse course : menuCourses) {
-            for (MenuItem item : course.getItems()) {
-                if (item.getId().equals(menuItemId)) {
-                    return Optional.of(item);
-                }
-            }
-        }
-        return Optional.empty();
+    public Optional<Dish> findDishByName(String dishName) {
+        return sections.stream()
+                .flatMap(s -> s.getDishes().stream())
+                .filter(d -> d.getName().equalsIgnoreCase(dishName))
+                .findFirst();
     }
 
-    public List<MenuItem> filterByDietary(DietaryType dietaryType) {
-        List<MenuItem> result = new ArrayList<>();
-        for (MenuCourse course : menuCourses) {
-            if (!course.isActive()) continue;
-            for (MenuItem item : course.getItems()) {
-                if (item.isAvailable() && item.getDish().getDietaryType() == dietaryType) {
-                    result.add(item);
-                }
-            }
-        }
-        return result;
+    public Optional<Dish> findDishById(String dishId) {
+        return sections.stream()
+                .flatMap(s -> s.getDishes().stream())
+                .filter(d -> d.getId().equals(dishId))
+                .findFirst();
     }
 }
-

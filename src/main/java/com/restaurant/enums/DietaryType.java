@@ -5,4 +5,3 @@ public enum DietaryType {
     NON_VEG,
     VEGAN
 }
-

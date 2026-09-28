@@ -7,7 +7,5 @@ public enum CuisineType {
     JAPANESE,
     INDIAN,
     CONTINENTAL,
-    MEXICAN,
-    MEDITERRANEAN
+    MEXICAN
 }
-

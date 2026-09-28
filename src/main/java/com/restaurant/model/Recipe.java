@@ -7,27 +7,19 @@ import java.util.Objects;
 
 public class Recipe {
     private final String id;
-    private final String title;
     private final List<String> instructions;
     private final int prepTimeMinutes;
-    private final int cookTimeMinutes;
     private final List<RecipeIngredient> ingredients;
 
-    public Recipe(String id, String title, List<String> instructions, int prepTimeMinutes, int cookTimeMinutes, List<RecipeIngredient> ingredients) {
+    public Recipe(String id, List<String> instructions, int prepTimeMinutes, List<RecipeIngredient> ingredients) {
         this.id = Objects.requireNonNull(id, "Recipe ID cannot be null");
-        this.title = Objects.requireNonNull(title, "Title cannot be null");
-        this.instructions = instructions != null ? new ArrayList<>(instructions) : new ArrayList<>();
-        this.prepTimeMinutes = prepTimeMinutes;
-        this.cookTimeMinutes = cookTimeMinutes;
-        this.ingredients = ingredients != null ? new ArrayList<>(ingredients) : new ArrayList<>();
+        this.instructions = new ArrayList<>(Objects.requireNonNull(instructions, "Instructions cannot be null"));
+        this.prepTimeMinutes = Math.max(0, prepTimeMinutes);
+        this.ingredients = new ArrayList<>(Objects.requireNonNull(ingredients, "Ingredients cannot be null"));
     }
 
     public String getId() {
         return id;
-    }
-
-    public String getTitle() {
-        return title;
     }
 
     public List<String> getInstructions() {
@@ -38,16 +30,19 @@ public class Recipe {
         return prepTimeMinutes;
     }
 
-    public int getCookTimeMinutes() {
-        return cookTimeMinutes;
-    }
-
-    public int getTotalTimeMinutes() {
-        return prepTimeMinutes + cookTimeMinutes;
-    }
-
     public List<RecipeIngredient> getIngredients() {
         return Collections.unmodifiableList(ingredients);
     }
-}
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Recipe recipe)) return false;
+        return Objects.equals(id, recipe.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+}

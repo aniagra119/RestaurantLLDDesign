@@ -1,86 +1,45 @@
 package com.restaurant.builder;
 
-import com.restaurant.model.Course;
 import com.restaurant.model.Dish;
 import com.restaurant.model.Menu;
-import com.restaurant.model.MenuCourse;
-import com.restaurant.model.MenuItem;
+import com.restaurant.model.MenuSection;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.Map;
 
 public class MenuBuilder {
-    private final String id;
-    private final String name;
-    private final List<MenuCourseBuilder> courseBuilders = new ArrayList<>();
+    private String menuId;
+    private String name;
+    private final Map<String, List<Dish>> sectionMap = new HashMap<>();
 
-    public MenuBuilder(String name) {
-        this("MENU-" + UUID.randomUUID().toString().substring(0, 8), name);
+    public MenuBuilder setMenuId(String menuId) {
+        this.menuId = menuId;
+        return this;
     }
 
-    public MenuBuilder(String id, String name) {
-        this.id = Objects.requireNonNull(id, "Menu ID cannot be null");
-        this.name = Objects.requireNonNull(name, "Menu name cannot be null");
+    public MenuBuilder setName(String name) {
+        this.name = name;
+        return this;
     }
 
-    public static MenuBuilder create(String name) {
-        return new MenuBuilder(name);
-    }
-
-    public MenuCourseBuilder addCourse(String courseName, int displayOrder) {
-        MenuCourseBuilder courseBuilder = new MenuCourseBuilder(this, new Course("CRS-" + UUID.randomUUID().toString().substring(0, 6), courseName), displayOrder);
-        this.courseBuilders.add(courseBuilder);
-        return courseBuilder;
+    public MenuBuilder addDishToSection(String sectionName, Dish dish) {
+        sectionMap.computeIfAbsent(sectionName, k -> new ArrayList<>()).add(dish);
+        return this;
     }
 
     public Menu build() {
-        Menu menu = new Menu(id, name);
-        for (MenuCourseBuilder cb : courseBuilders) {
-            menu.addMenuCourse(cb.buildCourse());
+        if (menuId == null) {
+            menuId = "MENU-" + System.currentTimeMillis();
         }
-        return menu;
-    }
-
-    public static class MenuCourseBuilder {
-        private final MenuBuilder parent;
-        private final Course course;
-        private final int displayOrder;
-        private final List<MenuItem> items = new ArrayList<>();
-
-        public MenuCourseBuilder(MenuBuilder parent, Course course, int displayOrder) {
-            this.parent = parent;
-            this.course = course;
-            this.displayOrder = displayOrder;
+        if (name == null) {
+            name = "Main Dine-in Menu";
         }
-
-        public MenuCourseBuilder addDish(Dish dish, double price) {
-            return addDish(dish, BigDecimal.valueOf(price));
+        List<MenuSection> sections = new ArrayList<>();
+        for (Map.Entry<String, List<Dish>> entry : sectionMap.entrySet()) {
+            sections.add(new MenuSection(entry.getKey(), entry.getValue()));
         }
-
-        public MenuCourseBuilder addDish(Dish dish, BigDecimal price) {
-            String itemId = "MI-" + UUID.randomUUID().toString().substring(0, 8);
-            items.add(new MenuItem(itemId, dish, price));
-            return this;
-        }
-
-        public MenuBuilder and() {
-            return parent;
-        }
-
-        public Menu build() {
-            return parent.build();
-        }
-
-        private MenuCourse buildCourse() {
-            MenuCourse mc = new MenuCourse("MC-" + UUID.randomUUID().toString().substring(0, 8), course, displayOrder);
-            for (MenuItem item : items) {
-                mc.addItem(item);
-            }
-            return mc;
-        }
+        return new Menu(menuId, name, sections);
     }
 }
-

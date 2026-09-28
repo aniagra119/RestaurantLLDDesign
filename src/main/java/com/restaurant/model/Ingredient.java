@@ -1,23 +1,35 @@
 package com.restaurant.model;
 
-import com.restaurant.enums.Unit;
+import com.restaurant.enums.IngredientType;
+import com.restaurant.enums.MeasurementUnit;
+import com.restaurant.exception.InsufficientInventoryException;
 
 import java.util.Objects;
 
 public class Ingredient {
     private final String id;
     private final String name;
-    private final Unit baseUnit;
-    private double availableQuantity;
+    private final IngredientType type;
+    private final MeasurementUnit unit;
+    private double currentStock;
 
-    public Ingredient(String id, String name, Unit baseUnit, double initialQuantity) {
-        this.id = Objects.requireNonNull(id, "Ingredient ID must not be null");
-        this.name = Objects.requireNonNull(name, "Ingredient name must not be null");
-        this.baseUnit = Objects.requireNonNull(baseUnit, "Base unit must not be null");
-        if (initialQuantity < 0) {
-            throw new IllegalArgumentException("Initial quantity cannot be negative");
+    public Ingredient(String id, String name, IngredientType type, MeasurementUnit unit, double initialStock) {
+        this.id = Objects.requireNonNull(id, "Ingredient ID cannot be null");
+        this.name = Objects.requireNonNull(name, "Ingredient name cannot be null");
+        this.type = Objects.requireNonNull(type, "Ingredient type cannot be null");
+        this.unit = Objects.requireNonNull(unit, "Measurement unit cannot be null");
+
+        // Validate solid vs liquid consistency
+        if (type == IngredientType.SOLID && unit != MeasurementUnit.GRAMS) {
+            throw new IllegalArgumentException("Solid ingredients must be measured in GRAMS");
         }
-        this.availableQuantity = initialQuantity;
+        if (type == IngredientType.LIQUID && unit != MeasurementUnit.MILLILITERS) {
+            throw new IllegalArgumentException("Liquid ingredients must be measured in MILLILITERS");
+        }
+        if (initialStock < 0) {
+            throw new IllegalArgumentException("Initial stock cannot be negative");
+        }
+        this.currentStock = initialStock;
     }
 
     public String getId() {
@@ -28,35 +40,46 @@ public class Ingredient {
         return name;
     }
 
-    public Unit getBaseUnit() {
-        return baseUnit;
+    public IngredientType getType() {
+        return type;
     }
 
-    public synchronized double getAvailableQuantity() {
-        return availableQuantity;
+    public MeasurementUnit getUnit() {
+        return unit;
     }
 
-    public synchronized void restock(double amount) {
+    public synchronized double getCurrentStock() {
+        return currentStock;
+    }
+
+    public synchronized void addStock(double amount) {
         if (amount <= 0) {
-            throw new IllegalArgumentException("Restock amount must be positive");
+            throw new IllegalArgumentException("Stock to add must be positive");
         }
-        this.availableQuantity += amount;
+        this.currentStock += amount;
     }
 
-    public synchronized boolean hasEnoughStock(double requiredBaseAmount) {
-        return this.availableQuantity >= requiredBaseAmount;
+    public synchronized void deductStock(double amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Stock to deduct must be positive");
+        }
+        if (currentStock < amount) {
+            throw new InsufficientInventoryException(String.format(
+                    "Insufficient stock for %s (%s). Required: %.2f %s, Available: %.2f %s",
+                    name, id, amount, unit, currentStock, unit));
+        }
+        this.currentStock -= amount;
     }
 
-    public synchronized void deductStock(double amountInBaseUnit) {
-        if (amountInBaseUnit < 0) {
-            throw new IllegalArgumentException("Deduct amount cannot be negative");
-        }
-        if (this.availableQuantity < amountInBaseUnit) {
-            throw new IllegalStateException("Insufficient inventory for ingredient: " + name +
-                    " (Required: " + amountInBaseUnit + " " + baseUnit.getSymbol() +
-                    ", Available: " + availableQuantity + " " + baseUnit.getSymbol() + ")");
-        }
-        this.availableQuantity -= amountInBaseUnit;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Ingredient that)) return false;
+        return Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
     }
 }
-
