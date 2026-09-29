@@ -1,31 +1,31 @@
 # Architectural Decisions, Interview Traps & Socratic Notes
 
-## 1. Core Architectural Dilemmas & Interview Trade-offs
+---
 
-### Dilemma 1: Why `Dish` Should Not Have a Price Field
-- **The Junior Approach**: Adding `BigDecimal price` directly to `Dish`.
-- **Why this fails in Enterprise Systems**:
-  - The same dish is sold at different prices across different channels (e.g. In-house dining vs Swiggy/Zomato delivery vs Airport branch vs Happy Hour discount menu).
-  - Tying price to `Dish` violates the Single Responsibility Principle by mixing culinary specifications (recipes, calories, dietary tags) with commercial catalog marketing.
+## 1. Core Architectural Dilemmas & Staff Trade-offs
+
+### Dilemma 1: Fulfilling Exact Domain Contracts vs Enterprise Over-Engineering
+- **The Pitfall**: In an attempt to show enterprise prowess, candidates often abstract away fundamental problem constraints. For example, replacing explicit `WaiterLevel` (`Junior, Senior, Manager`) and `ChefLevel` (`Commis, Sous, Head, Executive`) with generic RBAC `Role` and `Permission` strings, or removing `price` from `Dish` into decoupled commercial menus.
 - **The Staff Resolution**:
-  - `Dish`: Pure culinary master record (`name`, `description`, `recipe`, `dietaryType`).
-  - `MenuItem`: The commercial catalog entry binding `Dish` to a specific `Menu` with `price` and `isAvailable`.
+  - Always satisfy the explicit domain contract first. `Waiter` must expose `WaiterLevel`, `Chef` must expose `ChefLevel`, and `Dish` must have a primary `price`.
+  - Design patterns (Strategy, Observer, Decorator, Builder) should be applied to enhance and decouple operations, not obscure the domain model.
 
 ---
 
 ### Dilemma 2: Combinatorial Variant Explosion vs Decorator Pattern
 - **The Junior Approach**: Creating distinct subclasses or database rows for every permutation (`ChickenArrabiataPenne`, `VegArrabiataPenne`, `ChickenAlfredoPenne`, `VegAlfredoPenne`, etc.).
-  - With 4 proteins, 4 sauces, and 3 pasta shapes, this requires **48 separate variant entities**.
+  - With 4 proteins, 4 sauces, and 3 spice levels, this requires **48 separate variant entities**.
 - **The Staff Resolution**:
   - Employ the **GoF Decorator Pattern**.
-  - `BaseDishItem` wraps the base pasta.
-  - `ProteinDecorator` decorates the base item, adds the protein price, and dynamically adjusts the dietary type to `NON_VEG`.
-  - `SauceDecorator` adds the sauce price and simmering instructions.
+  - `BaseDishItem` wraps the base dish.
+  - `ExtraToppingDecorator` decorates the base item and adds the topping price.
+  - `SpiceLevelDecorator` adjusts the spice intensity.
+  - `ProteinDecorator` adds the protein price and dynamically updates the dietary classification to `NON_VEG`.
   - Total entities: **$4 + 4 + 3 = 11$ options**, zero Cartesian product explosion.
 
 ---
 
-### Dilemma 3: Multi-Round Ordering & Temporal Session Modeling
+### Dilemma 3: Multi-Round Ordering & Temporal Visit Modeling
 - **The Junior Trap**: Binding an `Order` 1:1 to a `Customer` or `Table`.
 - **The Reality of Dining**:
   - Customers sit at a table for 1 to 2 hours.
@@ -33,19 +33,30 @@
     - Round 1 (12:05 PM): Appetizers & Drinks.
     - Round 2 (12:35 PM): Mains.
     - Round 3 (01:15 PM): Desserts & Coffee.
-  - Each round is an independent `Order` routed to the kitchen, but all rounds belong to a single **`DiningSession`**.
+  - Each round is an independent `Order` routed to the kitchen, but all rounds belong to a single **`CustomerVisit`**.
 - **State Machine Invariant**:
-  - Once the customer requests the bill (`generateBill()`), the session transitions to `BILLED`.
-  - Calling `addOrder()` in `BILLED` or `SETTLED` state throws `IllegalStateException`.
+  - Once the customer requests the bill (`generateBill()`), the visit transitions to `BILLED`.
+  - Calling `placeOrder()` in `BILLED` or `COMPLETED` state throws `InvalidVisitStateException`.
 
 ---
 
 ### Dilemma 4: Split Payments
 - A bill is rarely settled via a single payment in group dining.
 - Modeling `Bill (1) *-- (0..*) Payment` enables:
-  - Partial payments via different methods (e.g. ₹1,000 via UPI + ₹610 via Credit Card).
+  - Partial payments via different methods (e.g. ₹1,000 via UPI + ₹840 via Credit Card).
   - Transitioning from `UNPAID` $\to$ `PARTIALLY_PAID` $\to$ `PAID`.
   - Strict guard against overpayments (`payment.amount > bill.getRemainingAmount()`).
+
+---
+
+### Dilemma 5: Physical Ingredient Measurements (Solids vs Liquids)
+- **The Junior Trap**: Using `String unit` ("g", "ml", "spoon") leading to runtime bugs and arbitrary unit conversions.
+- **The Staff Resolution**:
+  - Explicit categorization: `IngredientType.SOLID` vs `IngredientType.LIQUID`.
+  - Strict measurement unit invariants:
+    - Solids are measured strictly in `MeasurementUnit.GRAMS`.
+    - Liquids / semi-liquids are measured strictly in `MeasurementUnit.MILLILITERS`.
+  - Recipes validate unit compatibility at instantiation, preventing dimensional errors.
 
 ---
 
@@ -53,7 +64,7 @@
 
 | Trap | Why Interviewers Fail Candidates | How We Solved It |
 | :--- | :--- | :--- |
-| **Using `double` / `float` for Money** | Binary floating-point arithmetic causes cumulative precision drift (`0.1 + 0.2 != 0.3`). | All monetary values use `BigDecimal` with explicit scale (`2, RoundingMode.HALF_UP`). |
-| **Direct Waiter-to-Chef Coupling** | Hardcoding `waiter.giveToChef(chef)` couples front-of-house to individual kitchen personnel. | Decoupled via `KitchenService` and `KitchenEventPublisher` (Observer pattern). |
-| **Primitive Obsession in Units** | Using `String unit` ("g", "ml", "spoon") leads to typos and impossible conversions. | `Unit` enum with dimensional categorization (`MASS`, `VOLUME`, `COUNT`) and base conversion factors. |
-| **Mixing Reservation with Dining** | Making `Reservation` inherit or encapsulate `DiningSession`. A reservation is in the future; a session is in the present. | `Reservation.checkIn()` explicitly spawns a new active `DiningSession` on arrival. |
+| **Missing Problem Requirements** | Abstracting away explicitly named fields like `WaiterLevel` or `ChefLevel` into generic models. | Direct domain modeling with strongly-typed enums and clean OOP encapsulation. |
+| **Direct Waiter-to-Chef Coupling** | Hardcoding `waiter.giveToChef(chef)` couples front-of-house to individual kitchen personnel. | Decoupled via `OrderEventPublisher` and `KitchenDisplayListener` (Observer pattern). |
+| **Primitive Obsession in Units** | Using raw strings for measurements without validation. | `MeasurementUnit` enum with strict solid (`GRAMS`) vs liquid (`MILLILITERS`) enforcement. |
+| **Single-Order Billing Assumption** | Generating a bill immediately per order instead of aggregating across multi-round visit orders. | `CustomerVisit` acts as the aggregate boundary accumulating multi-round orders before billing. |
