@@ -5,8 +5,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
-public class Menu {
+public class Menu implements MenuComponent {
     private final String menuId;
     private final String name;
     private final List<MenuSection> sections;
@@ -25,12 +26,20 @@ public class Menu {
         return menuId;
     }
 
+    @Override
     public String getName() {
         return name;
     }
 
     public List<MenuSection> getSections() {
         return Collections.unmodifiableList(sections);
+    }
+
+    @Override
+    public List<Dish> getAllDishes() {
+        return sections.stream()
+                .flatMap(s -> s.getDishes().stream())
+                .collect(Collectors.toList());
     }
 
     public void addSection(MenuSection section) {
@@ -50,5 +59,14 @@ public class Menu {
                 .flatMap(s -> s.getDishes().stream())
                 .filter(d -> d.getId().equals(dishId))
                 .findFirst();
+    }
+
+    @Override
+    public void display(int indentLevel) {
+        String indent = "  ".repeat(indentLevel);
+        System.out.println(indent + "Menu: " + name);
+        for (MenuSection section : sections) {
+            section.display(indentLevel + 1);
+        }
     }
 }
