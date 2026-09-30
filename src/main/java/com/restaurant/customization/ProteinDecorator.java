@@ -40,3 +40,4 @@ public class ProteinDecorator extends DishCustomizationDecorator {
         return additionalCost;
     }
 }
+

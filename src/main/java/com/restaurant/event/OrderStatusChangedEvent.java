@@ -29,3 +29,4 @@ public class OrderStatusChangedEvent extends OrderEvent {
         return newStatus;
     }
 }
+

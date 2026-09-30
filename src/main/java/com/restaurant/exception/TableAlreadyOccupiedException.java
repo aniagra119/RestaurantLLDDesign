@@ -5,3 +5,4 @@ public class TableAlreadyOccupiedException extends RuntimeException {
         super(message);
     }
 }
+

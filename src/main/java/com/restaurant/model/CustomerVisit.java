@@ -95,3 +95,4 @@ public class CustomerVisit {
         waiter.releaseTable(table);
     }
 }
+

@@ -35,3 +35,4 @@ public class DiscountedBillingStrategy implements BillingStrategy {
         return new Bill(billId, subtotal, tax, serviceCharge, discount, total);
     }
 }
+

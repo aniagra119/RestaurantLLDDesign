@@ -5,3 +5,4 @@ public class InvalidPaymentException extends RuntimeException {
         super(message);
     }
 }
+

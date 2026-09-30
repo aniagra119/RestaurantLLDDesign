@@ -7,3 +7,4 @@ public interface OrderableItem {
     double getPrice();
     DietaryType getDietaryType();
 }
+

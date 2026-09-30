@@ -36,3 +36,4 @@ public class KitchenDisplayListener implements OrderEventListener {
         // No-op or status update
     }
 }
+

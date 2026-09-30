@@ -139,3 +139,4 @@ class RestaurantIntegrationTest {
         assertFalse(waiterJohn.getAssignedTables().contains(table4));
     }
 }
+

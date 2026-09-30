@@ -30,3 +30,4 @@ public class CustomerNotificationListener implements OrderEventListener {
                 event.getNewStatus()));
     }
 }
+

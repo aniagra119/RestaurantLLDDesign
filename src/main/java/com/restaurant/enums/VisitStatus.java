@@ -6,3 +6,4 @@ public enum VisitStatus {
     COMPLETED,
     CANCELLED
 }
+

@@ -30,3 +30,4 @@ public class StandardBillingStrategy implements BillingStrategy {
         return new Bill(billId, subtotal, tax, serviceCharge, 0.0, total);
     }
 }
+

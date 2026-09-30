@@ -5,3 +5,4 @@ public class InsufficientInventoryException extends RuntimeException {
         super(message);
     }
 }
+
