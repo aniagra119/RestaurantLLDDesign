@@ -541,3 +541,213 @@ class Restaurant {
 // 5. Strict Ingredient Measurement & Recipe Modeling:
 //    - RecipeIngredient maps Ingredient to MeasurementUnit (GRAMS for SOLID ingredients, MILLILITERS for
 //      LIQUID ingredients), guaranteeing Chef precision and automated kitchen inventory stock depletion.
+
+
+// ============================================================================
+// RELATIONAL DATABASE SCHEMA (SQL DDL & REFERENTIAL INTEGRITY)
+// ============================================================================
+/*
+-- -----------------------------------------------------------------------------
+-- 1. RESTAURANT, TABLES & INFRASTRUCTURE
+-- -----------------------------------------------------------------------------
+CREATE TABLE restaurants (
+    restaurant_id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    street VARCHAR(255) NOT NULL,
+    city VARCHAR(64) NOT NULL,
+    state VARCHAR(64) NOT NULL,
+    zip_code VARCHAR(16) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE restaurant_cuisines (
+    restaurant_id VARCHAR(64) NOT NULL REFERENCES restaurants(restaurant_id) ON DELETE CASCADE,
+    cuisine_type VARCHAR(32) NOT NULL CHECK (cuisine_type IN ('ITALIAN', 'FRENCH', 'CHINESE', 'JAPANESE', 'INDIAN', 'CONTINENTAL', 'MEXICAN')),
+    PRIMARY KEY (restaurant_id, cuisine_type)
+);
+
+CREATE TABLE restaurant_tables (
+    table_id VARCHAR(64) PRIMARY KEY,
+    restaurant_id VARCHAR(64) NOT NULL REFERENCES restaurants(restaurant_id) ON DELETE CASCADE,
+    table_number INT NOT NULL,
+    seating_capacity INT NOT NULL CHECK (seating_capacity > 0),
+    is_occupied BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_table_number_per_restaurant UNIQUE (restaurant_id, table_number)
+);
+
+CREATE INDEX idx_tables_restaurant_capacity ON restaurant_tables(restaurant_id, seating_capacity, is_occupied);
+
+-- -----------------------------------------------------------------------------
+-- 2. EMPLOYEES HIERARCHY (WAITER & CHEF)
+-- -----------------------------------------------------------------------------
+CREATE TABLE employees (
+    employee_id VARCHAR(64) PRIMARY KEY,
+    restaurant_id VARCHAR(64) NOT NULL REFERENCES restaurants(restaurant_id) ON DELETE CASCADE,
+    name VARCHAR(128) NOT NULL,
+    email VARCHAR(128) NOT NULL UNIQUE,
+    phone_number VARCHAR(32) NOT NULL,
+    employee_role VARCHAR(32) NOT NULL CHECK (employee_role IN ('WAITER', 'CHEF')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE waiters (
+    waiter_id VARCHAR(64) PRIMARY KEY REFERENCES employees(employee_id) ON DELETE CASCADE,
+    waiter_level VARCHAR(32) NOT NULL CHECK (waiter_level IN ('JUNIOR', 'SENIOR', 'MANAGER')),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE chefs (
+    chef_id VARCHAR(64) PRIMARY KEY REFERENCES employees(employee_id) ON DELETE CASCADE,
+    chef_level VARCHAR(32) NOT NULL CHECK (chef_level IN ('COMMIS_CHEF', 'SOUS_CHEF', 'HEAD_CHEF', 'EXECUTIVE_CHEF')),
+    is_on_duty BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- -----------------------------------------------------------------------------
+-- 3. MENUS, SECTIONS, DISHES & RECIPES
+-- -----------------------------------------------------------------------------
+CREATE TABLE menus (
+    menu_id VARCHAR(64) PRIMARY KEY,
+    restaurant_id VARCHAR(64) NOT NULL UNIQUE REFERENCES restaurants(restaurant_id) ON DELETE CASCADE,
+    title VARCHAR(128) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE menu_sections (
+    section_id VARCHAR(64) PRIMARY KEY,
+    menu_id VARCHAR(64) NOT NULL REFERENCES menus(menu_id) ON DELETE CASCADE,
+    name VARCHAR(64) NOT NULL,
+    display_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE dishes (
+    dish_id VARCHAR(64) PRIMARY KEY,
+    section_id VARCHAR(64) NOT NULL REFERENCES menu_sections(section_id) ON DELETE CASCADE,
+    name VARCHAR(128) NOT NULL,
+    description TEXT,
+    base_price NUMERIC(10, 2) NOT NULL CHECK (base_price >= 0),
+    dietary_type VARCHAR(32) NOT NULL CHECK (dietary_type IN ('VEG', 'NON_VEG', 'VEGAN')),
+    is_available BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_dishes_section_dietary ON dishes(section_id, dietary_type, is_available);
+
+CREATE TABLE ingredients (
+    ingredient_id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL UNIQUE,
+    ingredient_type VARCHAR(32) NOT NULL CHECK (ingredient_type IN ('SOLID', 'LIQUID')),
+    stock_quantity NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    unit_of_measure VARCHAR(32) NOT NULL CHECK (unit_of_measure IN ('GRAMS', 'MILLILITERS')),
+    reorder_threshold NUMERIC(10, 2) NOT NULL DEFAULT 100.0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE recipe_ingredients (
+    recipe_item_id VARCHAR(64) PRIMARY KEY,
+    dish_id VARCHAR(64) NOT NULL REFERENCES dishes(dish_id) ON DELETE CASCADE,
+    ingredient_id VARCHAR(64) NOT NULL REFERENCES ingredients(ingredient_id) ON DELETE RESTRICT,
+    quantity NUMERIC(10, 2) NOT NULL CHECK (quantity > 0),
+    measurement_unit VARCHAR(32) NOT NULL CHECK (measurement_unit IN ('GRAMS', 'MILLILITERS')),
+    CONSTRAINT uq_recipe_dish_ingredient UNIQUE (dish_id, ingredient_id)
+);
+
+-- -----------------------------------------------------------------------------
+-- 4. CUSTOMERS, SESSIONS, ORDERS & SETTLEMENT
+-- -----------------------------------------------------------------------------
+CREATE TABLE customers (
+    customer_id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    phone_number VARCHAR(32) NOT NULL,
+    email VARCHAR(128),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE customer_visits (
+    visit_id VARCHAR(64) PRIMARY KEY,
+    restaurant_id VARCHAR(64) NOT NULL REFERENCES restaurants(restaurant_id) ON DELETE CASCADE,
+    customer_id VARCHAR(64) NOT NULL REFERENCES customers(customer_id) ON DELETE RESTRICT,
+    table_id VARCHAR(64) NOT NULL REFERENCES restaurant_tables(table_id) ON DELETE RESTRICT,
+    waiter_id VARCHAR(64) NOT NULL REFERENCES waiters(waiter_id) ON DELETE RESTRICT,
+    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'BILLED', 'COMPLETED')),
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX idx_customer_visits_table_status ON customer_visits(table_id, status);
+
+CREATE TABLE dining_orders (
+    order_id VARCHAR(64) PRIMARY KEY,
+    visit_id VARCHAR(64) NOT NULL REFERENCES customer_visits(visit_id) ON DELETE CASCADE,
+    assigned_chef_id VARCHAR(64) REFERENCES chefs(chef_id) ON DELETE SET NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'PLACED' CHECK (status IN ('PLACED', 'PREPARING', 'READY', 'SERVED', 'CANCELLED')),
+    order_timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE order_items (
+    order_item_id VARCHAR(64) PRIMARY KEY,
+    order_id VARCHAR(64) NOT NULL REFERENCES dining_orders(order_id) ON DELETE CASCADE,
+    dish_id VARCHAR(64) NOT NULL REFERENCES dishes(dish_id) ON DELETE RESTRICT,
+    base_price NUMERIC(10, 2) NOT NULL,
+    final_price NUMERIC(10, 2) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE order_item_customizations (
+    customization_id VARCHAR(64) PRIMARY KEY,
+    order_item_id VARCHAR(64) NOT NULL REFERENCES order_items(order_item_id) ON DELETE CASCADE,
+    customization_type VARCHAR(64) NOT NULL, -- e.g., EXTRA_CHEESE, SPICE_LEVEL
+    customization_description VARCHAR(128) NOT NULL,
+    additional_price NUMERIC(10, 2) NOT NULL DEFAULT 0.0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE bills (
+    bill_id VARCHAR(64) PRIMARY KEY,
+    visit_id VARCHAR(64) NOT NULL UNIQUE REFERENCES customer_visits(visit_id) ON DELETE RESTRICT,
+    subtotal NUMERIC(10, 2) NOT NULL,
+    discount_amount NUMERIC(10, 2) NOT NULL DEFAULT 0.0,
+    tax_amount NUMERIC(10, 2) NOT NULL DEFAULT 0.0,
+    final_amount NUMERIC(10, 2) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'UNPAID' CHECK (status IN ('UNPAID', 'PARTIALLY_PAID', 'PAID')),
+    generated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE payments (
+    payment_id VARCHAR(64) PRIMARY KEY,
+    bill_id VARCHAR(64) NOT NULL REFERENCES bills(bill_id) ON DELETE RESTRICT,
+    transaction_reference VARCHAR(128) NOT NULL UNIQUE,
+    amount NUMERIC(10, 2) NOT NULL CHECK (amount > 0),
+    payment_method VARCHAR(32) NOT NULL CHECK (payment_method IN ('CASH', 'CREDIT_CARD', 'DEBIT_CARD', 'UPI')),
+    payment_timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_payments_bill_id ON payments(bill_id);
+
+-- -----------------------------------------------------------------------------
+-- 5. EXTENSIBILITY & FUTURE SCOPE TABLES
+-- -----------------------------------------------------------------------------
+-- Example A: Table Reservations without altering core customer_visits
+CREATE TABLE table_reservations (
+    reservation_id VARCHAR(64) PRIMARY KEY,
+    customer_id VARCHAR(64) NOT NULL REFERENCES customers(customer_id) ON DELETE CASCADE,
+    table_id VARCHAR(64) NOT NULL REFERENCES restaurant_tables(table_id) ON DELETE CASCADE,
+    party_size INT NOT NULL CHECK (party_size > 0),
+    reservation_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'CONFIRMED' CHECK (status IN ('CONFIRMED', 'CANCELLED', 'SEATED')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Example B: Real-Time Table Turnover & SLA Metrics
+CREATE TABLE dining_sla_audits (
+    audit_id VARCHAR(64) PRIMARY KEY,
+    order_id VARCHAR(64) NOT NULL REFERENCES dining_orders(order_id) ON DELETE CASCADE,
+    placed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    ready_at TIMESTAMP WITH TIME ZONE,
+    served_at TIMESTAMP WITH TIME ZONE,
+    kitchen_prep_minutes NUMERIC(6, 2),
+    sla_breached BOOLEAN NOT NULL DEFAULT FALSE
+);
+*/
