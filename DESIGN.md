@@ -2,180 +2,66 @@
 
 ---
 
-## 1. Enums (Fixed Compiler-Safe Constants)
-- **`DietaryType`**: `VEG`, `NON_VEG`, `VEGAN`
-- **`Department`**: `KITCHEN`, `SERVICE`
-- **`Permission`**: `TAKE_ORDER`, `PREPARE_FOOD`, `APPROVE_RECIPE`, `GENERATE_BILL`, `VOID_BILL`
-- **`Unit`**: 
-  - Mass: `GRAM` (base: 1.0), `KILOGRAM` (1000.0)
-  - Volume: `MILLILITER` (base: 1.0), `LITER` (1000.0), `TEASPOON` (5.0), `TABLESPOON` (15.0), `CUP` (240.0)
-  - Count: `PIECE` (1.0), `PINCH` (0.5)
+## 1. Core Requirements & Domain Model Alignment
+
+The design directly models the real-world operational domain of an enterprise restaurant while strictly adhering to the requirements:
+
+1. **Restaurant**: Root aggregate composing `name`, `address`, `cuisines`, `menu`, `waiters`, `chefs`, `tables`, and `activeVisits`.
+2. **Cuisines**: Explicit compiler-safe constants via `CuisineType` (`ITALIAN`, `FRENCH`, `CHINESE`, `JAPANESE`, `INDIAN`, `CONTINENTAL`, `MEXICAN`).
+3. **Menu Structure**: `Menu` aggregates `MenuSection`s (`Soups`, `Appetizers`, `Pastas & Mains`, `Desserts`). Each section contains master `Dish` entities.
+4. **Dish Definition**: Each `Dish` defines culinary identity: `name`, `description`, `type` (`VEG`, `NON_VEG`, `VEGAN`), `price`, `targetStation`, and `recipe`.
+5. **Recipe & Ingredients**: A `Recipe` defines cooking instructions, prep time, and itemized `RecipeIngredient`s.
+6. **Ingredient Measurement**:
+   - **Solids** are strictly measured in **`MeasurementUnit.GRAMS`**.
+   - **Liquids / Semi-liquids** are strictly measured in **`MeasurementUnit.MILLILITERS`**.
+   - Enforced via `IngredientType` (`SOLID` vs `LIQUID`).
+7. **Staff Levels**:
+   - **`Waiter`**: Has `WaiterLevel` (`JUNIOR`, `SENIOR`, `MANAGER`) and dynamic table assignments.
+   - **`Chef`**: Has `ChefLevel` (`COMMIS_CHEF`, `SOUS_CHEF`, `HEAD_CHEF`, `EXECUTIVE_CHEF`) and primary `KitchenStation`.
+8. **Customer Visit Lifecycle**: Tracks customers across their dining visit via `CustomerVisit`. Supports multi-round ordering (`Round 1: Appetizers`, `Round 2: Mains`) and terminal bill generation.
 
 ---
 
-## 2. Value Objects (Immutable, Identity by Value)
-- **`RecipeIngredient`** (Flyweight Context Object):
-  - `Ingredient ingredient`: Points to the shared master inventory `Ingredient` (Intrinsic state).
-  - `double amount`: Contextual quantity in this specific recipe (Extrinsic state).
-  - `Unit unit`: Contextual recipe unit (e.g. `TABLESPOON`).
-  - `getBaseAmount()`: Converts contextual amount to the ingredient's base inventory unit (`amount * unit.getConversionFactor()`).
-  - *Pattern Applied*: **Flyweight Pattern** — eliminates duplicate ingredient instances across 100+ recipes while centralizing inventory in a single master `Ingredient`.
+## 2. Gang of Four (GoF) Design Patterns Applied
+
+### 1. Strategy Pattern (`com.restaurant.billing.strategy`)
+- **Problem**: Tax laws (GST/VAT), service fees, and promotional discounts vary across restaurant branches and dining programs.
+- **Solution**: Encapsulate calculation algorithms behind `BillingStrategy`:
+  - `StandardBillingStrategy`: Computes standard statutory tax and service charges.
+  - `DiscountedBillingStrategy`: Applies promotional/loyalty percentage discounts before computing taxes.
+- **Benefits**: Extensible for new pricing models (e.g., HappyHour, CorporateVoucher) without modifying `CustomerVisit` or `Bill`.
+
+### 2. Observer Pattern (`com.restaurant.event`)
+- **Problem**: When orders are placed, disparate downstream consumers need real-time notifications: kitchen station display screens, guest table notifications, and billing audit logs.
+- **Solution**: Decouple publishers from subscribers via `OrderEventPublisher` and `OrderEventListener`:
+  - `KitchenDisplayListener`: Routes orders to specific station screens (`HOT_KITCHEN`, `COLD_STATION`, `BAR`).
+  - `CustomerNotificationListener`: Dispatches alerts to guests.
+  - `KitchenAuditLogListener`: Maintains an immutable audit trail of state transitions.
+
+### 3. Decorator Pattern (`com.restaurant.customization`)
+- **Problem**: Customizing dishes (e.g. adding extra cheese, changing spice intensity, adding chicken/shrimp) creates combinatorial explosion if modeled via class inheritance ($4 \times 4 \times 3 = 48$ subclasses).
+- **Solution**:
+  - `OrderableItem`: Common component interface declaring `getName()`, `getPrice()`, `getDietaryType()`.
+  - `BaseDishItem`: Wraps base `Dish`.
+  - `DishCustomizationDecorator`: Abstract decorator wrapping an `OrderableItem`.
+  - Concrete decorators: `ExtraToppingDecorator`, `SpiceLevelDecorator`, and `ProteinDecorator` (which dynamically switches `DietaryType` to `NON_VEG`).
+
+### 4. State Pattern (`com.restaurant.model.CustomerVisit`)
+- **Problem**: Ordering and billing operations must occur in strict sequence during a visit.
+- **Solution**: State machine lifecycle:
+  $$\text{ACTIVE} \xrightarrow{\text{generateBill()}} \text{BILLED} \xrightarrow{\text{makePayment() (all settled)}} \text{COMPLETED}$$
+- Enforces invariant guards:
+  - Cannot place orders after billing is initiated.
+  - Cannot complete visit with an unpaid balance.
+  - Frees table and releases assigned waiter automatically upon completion.
+
+### 5. Builder Pattern (`com.restaurant.builder`)
+- **Problem**: Assembling multi-layered aggregates (`Recipe`, `Menu`, `Restaurant`) involves numerous nested dependencies.
+- **Solution**: `RestaurantBuilder`, `MenuBuilder`, and `RecipeBuilder` provide fluent, step-by-step assembly with fail-fast invariant validation.
 
 ---
 
-## 3. Entities (Mutable, Identity by ID)
-
-### Staff & Master Data
-- **`Cuisine`**: `id`, `name`, `isActive`
-- **`Role`**: `id`, `name`, `department`, `Set<Permission> permissions`
-- **`Employee`**: `id`, `name`, `email`, `phoneNumber`, `department`, `role`
-  - Helper: `hasPermission(Permission p)`
-
-### Inventory & Culinary
-- **`Ingredient`** (Inventory Master):
-  - `id`: String
-  - `name`: String
-  - `baseUnit`: Unit (e.g. `MILLILITER` for oil, `GRAM` for cheese)
-  - `availableQuantity`: double
-  - `deductStock(double baseAmount)`: Decrements inventory when dishes are prepared.
-- **`Recipe`**:
-  - `id`: String
-  - `instructions`: List<String>
-  - `prepTimeMinutes`: int
-  - `cookTimeMinutes`: int
-  - `recipeIngredients`: List<RecipeIngredient>
-- **`Dish`** (Pure Culinary Definition):
-  - `id`: String
-  - `name`: String
-  - `description`: String
-  - `dietaryType`: DietaryType
-  - `cuisine`: Cuisine
-  - `recipe`: Recipe
-  - *Note*: Dish has zero price awareness. Price is contextual to where and when it is sold.
-
-### Commercial Menu Architecture (Decoupled & Multi-Menu Ready)
-- **`Course`** (Master Category Entity):
-  - `id`: String
-  - `name`: String (e.g. *"Soups"*, *"Appetizers"*, *"Main Course"*, *"Desserts"*)
-- **`MenuItem`** (Commercial Offering):
-  - `id`: String
-  - `dish`: Dish (reference to master culinary dish)
-  - `price`: BigDecimal (menu-specific commercial pricing)
-  - `isAvailable`: boolean (toggled off if kitchen runs out of stock)
-- **`MenuCourse`** (Menu-to-Course Bridge Entity):
-  - `id`: String
-  - `course`: Course (reference to master course)
-  - `isActive`: boolean (allows turning off whole courses, e.g. breakfast cut-off at 11 AM)
-  - `displayOrder`: int
-  - `items`: List<MenuItem>
-- **`Menu`** (Aggregate Catalog):
-  - `id`: String
-  - `name`: String (e.g. *"Dine-in Dinner Menu"*, *"Brunch Menu"*)
-  - `menuCourses`: List<MenuCourse>
-
----
-
-## 4. Customization & Recipe Assembly (Decorator Pattern)
-To prevent combinatorial explosion ($4 \times 4 \times 3 = 48$ variants), customizable orders dynamically decorate the base item:
-
-- **`PreparedItem`** (Component Interface):
-  - `getPrice()`: BigDecimal
-  - `getDietaryType()`: DietaryType
-  - `getIngredients()`: List<RecipeIngredient>
-  - `getCookingInstructions()`: List<String>
-- **`BaseDishItem`** (Concrete Component):
-  - Wraps base `MenuItem` and its `Dish` recipe.
-- **`DishModifierDecorator`** (Abstract Decorator):
-  - Implements `PreparedItem`, wraps another `PreparedItem`.
-  - Concrete subclasses: `ProteinDecorator` (adds protein ingredient, overrides dietary type to `NON_VEG`), `SauceDecorator` (adds sauce ingredient and simmering instruction), `AddOnDecorator` (e.g. extra cheese).
-- *Trade-off / Kink watch*: In pure in-memory OOP, Decorator is clean and dynamic. In relational DB persistence, it maps to an `OrderItem` holding a `List<SelectedModifier>`. We support both cleanly.
-
----
-
-## 5. Universal Order & Multi-Channel Architecture
-
-The **`Order`** is the universal payload consumed by the kitchen and Kitchen Display System (KDS), regardless of channel.
-
-### Enums
-- **`OrderChannel`**: `DINE_IN`, `TAKEAWAY`, `DELIVERY`
-- **`OrderStatus`**: `RECEIVED`, `PREPARING`, `READY`, `SERVED`, `DISPATCHED`, `CANCELLED`
-- **`ReservationStatus`**: `CONFIRMED`, `SEATED`, `CANCELLED`, `NO_SHOW`
-- **`SessionStatus`**: `ACTIVE`, `BILLED`, `SETTLED`, `CANCELLED`
-- **`BillStatus`**: `UNPAID`, `PAID`, `REFUNDED`
-- **`PaymentMethod`**: `CASH`, `CREDIT_CARD`, `DEBIT_CARD`, `UPI`
-
-### Channel Contexts
-- **`Order`** (Universal Aggregate):
-  - `id`: String
-  - `channel`: OrderChannel
-  - `items`: List<OrderItem>
-  - `placedAt`: LocalDateTime
-  - `status`: OrderStatus
-  - Channel Metadata:
-    - If `DINE_IN`: links to `sessionId`, `tableNumber`, `waiter`
-    - If `TAKEAWAY`: links to `pickupToken`, `customerPhone`
-    - If `DELIVERY`: links to `deliveryAddress`, `customerPhone`, `riderDetails`
-
-- **`OrderItem`**:
-  - `item`: PreparedItem (Base Dish + Decorated Modifiers)
-  - `quantity`: int
-  - `specialInstructions`: String
-  - `subtotal`: BigDecimal (`item.getPrice() * quantity`)
-
----
-
-## 6. Reservation & In-House Dining Session (State Pattern)
-
-### Reservation Domain (Future Booking Subdomain)
-- **`Reservation`**:
-  - `id`: String
-  - `customer`: Customer
-  - `tableNumber`: String
-  - `partySize`: int
-  - `reservedSlot`: LocalDateTime
-  - `status`: ReservationStatus
-  - `checkIn()`: Transitions status to `SEATED` and spawns a new active `DiningSession`.
-
-### In-House Dining Session (Multi-Round Visit)
-- **`DiningSession`**:
-  - `sessionId`: String
-  - `tableNumber`: String
-  - `primaryCustomer`: Customer
-  - `partyMembers`: List<Customer>
-  - `assignedWaiter`: Employee
-  - `orders`: List<Order> (Holds all multi-round dine-in orders placed during the visit)
-  - `status`: SessionStatus (`ACTIVE` -> `BILLED` -> `SETTLED`)
-  - Invariant: `addOrder()` is only permitted while status is `ACTIVE`. Cannot add orders once billed or settled.
-
----
-
-## 7. Billing Engine (Split-Payment Support)
-- **`Payment`**:
-  - `paymentId`: String
-  - `amount`: BigDecimal
-  - `method`: PaymentMethod (`CASH`, `CREDIT_CARD`, `DEBIT_CARD`, `UPI`)
-  - `transactionReference`: String
-  - `paidAt`: LocalDateTime
-- **`Bill`**:
-  - `billId`: String
-  - `sessionId`: String
-  - `itemSubtotal`: BigDecimal
-  - `taxAmount`: BigDecimal
-  - `serviceCharge`: BigDecimal
-  - `discountAmount`: BigDecimal
-  - `totalPayable`: BigDecimal
-  - `billStatus`: BillStatus (`UNPAID`, `PARTIALLY_PAID`, `PAID`)
-  - `payments`: List<Payment>
-  - `addPayment(Payment payment)`: Records a partial or full payment.
-  - `getRemainingAmount()`: `totalPayable - sum(payments)`.
-  - `isFullyPaid()`: Returns true when remaining amount is zero.
-- **`BillingStrategy`** (Strategy Interface):
-  - `computeBill(List<Order> orders)`: BillBreakdown
-  - Concrete: `StandardRestaurantBillingStrategy` (Configurable Tax % + Service Charge % with `BigDecimal` half-up rounding).
-
----
-
-## 8. Complete System Mermaid Class Diagram
+## 3. Class Blueprint & Type Contracts
 
 ```mermaid
 classDiagram
@@ -190,6 +76,7 @@ classDiagram
         JAPANESE
         INDIAN
         CONTINENTAL
+        MEXICAN
     }
 
     class DietaryType {
@@ -199,56 +86,55 @@ classDiagram
         VEGAN
     }
 
-    class Department {
+    class IngredientType {
         <<enumeration>>
-        KITCHEN
-        SERVICE
+        SOLID
+        LIQUID
     }
 
-    class Permission {
+    class MeasurementUnit {
         <<enumeration>>
-        TAKE_ORDER
-        PREPARE_FOOD
-        APPROVE_RECIPE
-        GENERATE_BILL
-        VOID_BILL
+        GRAMS
+        MILLILITERS
     }
 
-    class Unit {
+    class WaiterLevel {
         <<enumeration>>
-        GRAM
-        KILOGRAM
-        MILLILITER
-        LITER
-        TEASPOON
-        TABLESPOON
-        CUP
-        PIECE
-        PINCH
-        +getConversionFactor() double
+        JUNIOR
+        SENIOR
+        MANAGER
     }
 
-    class OrderChannel {
+    class ChefLevel {
         <<enumeration>>
-        DINE_IN
-        TAKEAWAY
-        DELIVERY
+        COMMIS_CHEF
+        SOUS_CHEF
+        HEAD_CHEF
+        EXECUTIVE_CHEF
+    }
+
+    class KitchenStation {
+        <<enumeration>>
+        HOT_KITCHEN
+        COLD_STATION
+        BAR
+        DESSERT_STATION
     }
 
     class OrderStatus {
         <<enumeration>>
-        RECEIVED
+        PLACED
         PREPARING
         READY
         SERVED
         CANCELLED
     }
 
-    class SessionStatus {
+    class VisitStatus {
         <<enumeration>>
         ACTIVE
         BILLED
-        SETTLED
+        COMPLETED
         CANCELLED
     }
 
@@ -257,6 +143,7 @@ classDiagram
         UNPAID
         PARTIALLY_PAID
         PAID
+        REFUNDED
     }
 
     class PaymentMethod {
@@ -267,279 +154,290 @@ classDiagram
         UPI
     }
 
-    %% Value Objects
+    %% Value Objects & Models
     class Address {
-        <<value object>>
-        -street: String
-        -city: String
-        -state: String
-        -postalCode: String
-        -country: String
+        -String street
+        -String city
+        -String state
+        -String postalCode
         +getFormattedAddress() String
     }
 
-    class RecipeIngredient {
-        <<value object>>
-        -ingredient: Ingredient
-        -amount: double
-        -unit: Unit
-        +getBaseAmount() double
+    class Customer {
+        -String id
+        -String name
+        -String phoneNumber
+        -String email
     }
 
-    %% Staff & RBAC
+    class Table {
+        -String tableNumber
+        -int capacity
+        -boolean isOccupied
+        +markOccupied() void
+        +markAvailable() void
+    }
+
+    class Ingredient {
+        -String id
+        -String name
+        -IngredientType type
+        -MeasurementUnit unit
+        -double currentStock
+        +addStock(double amount) void
+        +deductStock(double amount) void
+    }
+
+    class RecipeIngredient {
+        -Ingredient ingredient
+        -double amount
+        -MeasurementUnit unit
+    }
+
+    class Recipe {
+        -String id
+        -List~String~ instructions
+        -int prepTimeMinutes
+        -List~RecipeIngredient~ ingredients
+    }
+
+    class Dish {
+        -String id
+        -String name
+        -String description
+        -DietaryType type
+        -double price
+        -Recipe recipe
+        -KitchenStation targetStation
+        -boolean isAvailable
+    }
+
+    class MenuSection {
+        -String sectionName
+        -List~Dish~ dishes
+        +addDish(Dish dish) void
+        +findDishByName(String name) Optional~Dish~
+    }
+
+    class Menu {
+        -String menuId
+        -String name
+        -List~MenuSection~ sections
+        +addSection(MenuSection section) void
+        +findDishByName(String name) Optional~Dish~
+    }
+
+    %% Staff
     class Employee {
         <<abstract>>
-        #id: String
-        #name: String
-        #email: String
-        #phoneNumber: String
-        #department: Department
-        #role: Role
-        +hasPermission(Permission permission) boolean
-    }
-
-    class Role {
-        -id: String
-        -name: String
-        -department: Department
-        -permissions: Set~Permission~
-        +hasPermission(Permission permission) boolean
+        #String id
+        #String name
+        #String email
+        #String phoneNumber
     }
 
     class Waiter {
-        -assignedTables: List~String~
-        +takeOrder(DiningSession session, Order order) void
-        +requestBill(DiningSession session) Bill
+        -WaiterLevel level
+        -List~Table~ assignedTables
+        +assignTable(Table table) void
+        +releaseTable(Table table) void
     }
 
     class Chef {
-        +prepareOrder(Order order) void
-        +consultRecipe(Dish dish) Recipe
+        -ChefLevel level
+        -KitchenStation primaryStation
     }
 
     Employee <|-- Waiter
     Employee <|-- Chef
-    Employee o-- Role
-    Employee --> Department
-    Role o-- Permission
+    Waiter --> WaiterLevel
+    Chef --> ChefLevel
+    Chef --> KitchenStation
 
-    %% Inventory & Recipes
-    class Ingredient {
-        -id: String
-        -name: String
-        -baseUnit: Unit
-        -availableQuantity: double
-        +deductStock(double amount) void
-    }
-
-    class Recipe {
-        -id: String
-        -instructions: List~String~
-        -prepTimeMinutes: int
-        -cookTimeMinutes: int
-        -ingredients: List~RecipeIngredient~
-        +getIngredients() List~RecipeIngredient~
-    }
-
-    RecipeIngredient o-- Ingredient
-    RecipeIngredient --> Unit
-    Recipe *-- "1..*" RecipeIngredient
-
-    %% Catalog & Decoupled Menu
-    class Cuisine {
-        -id: String
-        -name: String
-        -isActive: boolean
-    }
-
-    class Course {
-        -id: String
-        -name: String
-    }
-
-    class Dish {
-        -id: String
-        -name: String
-        -description: String
-        -dietaryType: DietaryType
-        -cuisine: Cuisine
-        -recipe: Recipe
-        +getRecipe() Recipe
-    }
-
-    class MenuItem {
-        -id: String
-        -dish: Dish
-        -price: BigDecimal
-        -isAvailable: boolean
-        +getPrice() BigDecimal
-    }
-
-    class MenuCourse {
-        -id: String
-        -course: Course
-        -isActive: boolean
-        -displayOrder: int
-        -items: List~MenuItem~
-        +getItems() List~MenuItem~
-    }
-
-    class Menu {
-        -id: String
-        -name: String
-        -menuCourses: List~MenuCourse~
-        +findItemById(String menuItemId) Optional~MenuItem~
-    }
-
-    Dish --> DietaryType
-    Dish o-- Cuisine
-    Dish *-- Recipe
-    MenuItem o-- Dish
-    MenuCourse o-- Course
-    MenuCourse *-- "1..*" MenuItem
-    Menu *-- "1..*" MenuCourse
-
-    %% Customization & Decorator Pattern
-    class PreparedItem {
+    %% Customization / Decorator Pattern
+    class OrderableItem {
         <<interface>>
-        +getPrice() BigDecimal
+        +getName() String
+        +getPrice() double
         +getDietaryType() DietaryType
-        +getIngredients() List~RecipeIngredient~
-        +getCookingInstructions() List~String~
     }
 
     class BaseDishItem {
-        -menuItem: MenuItem
-        +getPrice() BigDecimal
-        +getDietaryType() DietaryType
-        +getIngredients() List~RecipeIngredient~
-        +getCookingInstructions() List~String~
-    }
-
-    class DishModifierDecorator {
-        <<abstract>>
-        #wrappedItem: PreparedItem
-        +getPrice() BigDecimal
-        +getDietaryType() DietaryType
-        +getIngredients() List~RecipeIngredient~
-        +getCookingInstructions() List~String~
-    }
-
-    PreparedItem <|.. BaseDishItem
-    PreparedItem <|.. DishModifierDecorator
-    DishModifierDecorator o-- PreparedItem
-
-    %% Ordering, Sessions & Visits
-    class Customer {
-        -id: String
-        -name: String
-        -phoneNumber: String
-        +getId() String
+        -Dish dish
         +getName() String
+        +getPrice() double
+        +getDietaryType() DietaryType
     }
 
+    class DishCustomizationDecorator {
+        <<abstract>>
+        #OrderableItem wrappedItem
+        +getName() String
+        +getPrice() double
+        +getDietaryType() DietaryType
+    }
+
+    class ExtraToppingDecorator {
+        -String toppingName
+        -double additionalCost
+    }
+
+    class SpiceLevelDecorator {
+        -String spiceLevel
+    }
+
+    class ProteinDecorator {
+        -String proteinName
+        -double additionalCost
+    }
+
+    OrderableItem <|.. BaseDishItem
+    OrderableItem <|.. DishCustomizationDecorator
+    DishCustomizationDecorator <|-- ExtraToppingDecorator
+    DishCustomizationDecorator <|-- SpiceLevelDecorator
+    DishCustomizationDecorator <|-- ProteinDecorator
+    DishCustomizationDecorator o-- OrderableItem
+
+    %% Ordering & Visit
     class OrderItem {
-        -orderItemId: String
-        -item: PreparedItem
-        -quantity: int
-        -specialInstructions: String
-        +getSubtotal() BigDecimal
+        -String itemId
+        -OrderableItem item
+        -int quantity
+        -String specialInstructions
+        +getSubtotal() double
     }
 
     class Order {
-        -id: String
-        -channel: OrderChannel
-        -placedAt: LocalDateTime
-        -status: OrderStatus
-        -items: List~OrderItem~
-        +calculateSubtotal() BigDecimal
-        +updateStatus(OrderStatus newStatus) void
+        -String orderId
+        -List~OrderItem~ items
+        -OrderStatus status
+        -long placedTimestamp
+        +addItem(OrderItem item) void
+        +updateStatus(OrderStatus status) void
+        +calculateSubtotal() double
     }
 
-    class Reservation {
-        -id: String
-        -customer: Customer
-        -tableNumber: String
-        -partySize: int
-        -reservedSlot: LocalDateTime
-        -status: ReservationStatus
-        +checkIn() DiningSession
-    }
-
-    class DiningSession {
-        -sessionId: String
-        -tableNumber: String
-        -primaryCustomer: Customer
-        -partyMembers: List~Customer~
-        -assignedWaiter: Waiter
-        -status: SessionStatus
-        -orders: List~Order~
-        -bill: Bill
-        +addOrder(Order order) void
+    class CustomerVisit {
+        -String visitId
+        -Table table
+        -Customer customer
+        -Waiter waiter
+        -List~Order~ orders
+        -Bill bill
+        -VisitStatus status
+        +placeOrder(Order order) void
         +generateBill(BillingStrategy strategy) Bill
-        +settleSession(PaymentMethod method, String ref) void
+        +makePayment(Payment payment) void
+        +completeVisit() void
     }
 
-    OrderItem o-- PreparedItem
+    OrderItem o-- OrderableItem
     Order *-- "1..*" OrderItem
-    Order --> OrderChannel
-    Order --> OrderStatus
-    Reservation o-- Customer
-    DiningSession o-- Customer
-    DiningSession o-- Waiter
-    DiningSession *-- "1..*" Order : "Multi-round orders during visit"
-    DiningSession --> SessionStatus
+    CustomerVisit o-- Table
+    CustomerVisit o-- Customer
+    CustomerVisit o-- Waiter
+    CustomerVisit *-- "1..*" Order
 
-    %% Billing
+    %% Billing & Split Payment
     class Payment {
-        -paymentId: String
-        -amount: BigDecimal
-        -method: PaymentMethod
-        -transactionReference: String
-        -paidAt: LocalDateTime
-        +getAmount() BigDecimal
+        -String paymentId
+        -double amount
+        -PaymentMethod method
+        -String transactionReference
+        -long timestamp
     }
 
     class Bill {
-        -billId: String
-        -sessionId: String
-        -itemSubtotal: BigDecimal
-        -taxAmount: BigDecimal
-        -serviceCharge: BigDecimal
-        -totalPayable: BigDecimal
-        -billStatus: BillStatus
-        -payments: List~Payment~
+        -String billId
+        -double itemSubtotal
+        -double taxAmount
+        -double serviceCharge
+        -double discountAmount
+        -double totalPayable
+        -BillStatus status
+        -List~Payment~ payments
         +addPayment(Payment payment) void
-        +getRemainingAmount() BigDecimal
+        +getRemainingAmount() double
         +isFullyPaid() boolean
     }
 
     class BillingStrategy {
         <<interface>>
-        +computeBill(List~Order~ orders) Bill
+        +calculateBill(String billId, List~Order~ orders) Bill
     }
 
-    DiningSession *-- "0..1" Bill
-    DiningSession ..> BillingStrategy
-    Bill *-- "0..*" Payment : "Split payments (Cash + UPI + Card)"
-    Payment --> PaymentMethod
-    Bill --> BillStatus
+    class StandardBillingStrategy {
+        -double taxRate
+        -double serviceChargeRate
+    }
 
-    %% Top-Level Restaurant Aggregate
+    class DiscountedBillingStrategy {
+        -double taxRate
+        -double serviceChargeRate
+        -double discountPercent
+    }
+
+    BillingStrategy <|.. StandardBillingStrategy
+    BillingStrategy <|.. DiscountedBillingStrategy
+    CustomerVisit *-- "0..1" Bill
+    CustomerVisit ..> BillingStrategy
+    Bill *-- "0..*" Payment
+
+    %% Event Bus / Observer Pattern
+    class OrderEvent {
+        <<abstract>>
+        -String eventId
+        -long timestamp
+    }
+
+    class OrderPlacedEvent {
+        -CustomerVisit visit
+        -Order order
+    }
+
+    class OrderStatusChangedEvent {
+        -Order order
+        -OrderStatus previousStatus
+        -OrderStatus newStatus
+    }
+
+    class OrderEventListener {
+        <<interface>>
+        +onOrderPlaced(OrderPlacedEvent event) void
+        +onOrderStatusChanged(OrderStatusChangedEvent event) void
+    }
+
+    class OrderEventPublisher {
+        -List~OrderEventListener~ listeners
+        +subscribe(OrderEventListener listener) void
+        +unsubscribe(OrderEventListener listener) void
+        +publishOrderPlaced(OrderPlacedEvent event) void
+        +publishStatusChanged(OrderStatusChangedEvent event) void
+    }
+
+    OrderEvent <|-- OrderPlacedEvent
+    OrderEvent <|-- OrderStatusChangedEvent
+    OrderEventPublisher o-- "0..*" OrderEventListener
+
+    %% Restaurant Aggregate Root
     class Restaurant {
-        -name: String
-        -address: Address
-        -cuisines: Set~Cuisine~
-        -menu: Menu
-        -employees: List~Employee~
-        -activeSessions: Map~String, DiningSession~
-        +startSession(String tableNumber, Customer customer, Waiter waiter) DiningSession
+        -String name
+        -Address address
+        -List~CuisineType~ cuisines
+        -Menu menu
+        -List~Waiter~ waiters
+        -List~Chef~ chefs
+        -List~Table~ tables
+        -VisitManager visitManager
+        -KitchenService kitchenService
+        +hostGuest(Customer customer, Table table, Waiter waiter) CustomerVisit
+        +placeOrder(String visitId, Order order) void
+        +generateBill(String visitId, BillingStrategy strategy) Bill
     }
 
     Restaurant *-- Address
-    Restaurant o-- Cuisine
     Restaurant *-- Menu
-    Restaurant o-- Employee
-    Restaurant o-- DiningSession
+    Restaurant o-- "1..*" Waiter
+    Restaurant o-- "1..*" Chef
+    Restaurant *-- "1..*" Table
 ```
-
