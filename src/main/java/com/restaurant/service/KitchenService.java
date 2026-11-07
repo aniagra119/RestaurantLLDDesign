@@ -23,7 +23,7 @@ public class KitchenService {
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "Event publisher cannot be null");
     }
 
-    public void startPreparingOrder(Order order, Chef chef) {
+    public synchronized void startPreparingOrder(Order order, Chef chef) {
         Objects.requireNonNull(order, "Order cannot be null");
         Objects.requireNonNull(chef, "Chef cannot be null");
 
@@ -38,21 +38,29 @@ public class KitchenService {
             }
         }
 
+        // Accept order into chef's queue (checks capacity limits)
+        chef.acceptOrder(order);
+
         OrderStatus oldStatus = order.getStatus();
         order.updateStatus(OrderStatus.PREPARING);
         eventPublisher.publishStatusChanged(new OrderStatusChangedEvent(
                 UUID.randomUUID().toString(), order, oldStatus, OrderStatus.PREPARING));
     }
 
-    public void markOrderReady(Order order) {
+    public synchronized void markOrderReady(Order order) {
         Objects.requireNonNull(order, "Order cannot be null");
+        Chef chef = order.getAssignedChef();
+        if (chef != null) {
+            chef.completeOrder(order);
+        }
+
         OrderStatus oldStatus = order.getStatus();
         order.updateStatus(OrderStatus.READY);
         eventPublisher.publishStatusChanged(new OrderStatusChangedEvent(
                 UUID.randomUUID().toString(), order, oldStatus, OrderStatus.READY));
     }
 
-    public void serveOrder(Order order) {
+    public synchronized void serveOrder(Order order) {
         Objects.requireNonNull(order, "Order cannot be null");
         if (order.getStatus() != OrderStatus.READY) {
             throw new IllegalStateException("Order must be READY before being served. Current: " + order.getStatus());
@@ -63,11 +71,16 @@ public class KitchenService {
                 UUID.randomUUID().toString(), order, oldStatus, OrderStatus.SERVED));
     }
 
-    public void cancelOrder(Order order, String reason) {
+    public synchronized void cancelOrder(Order order, String reason) {
         Objects.requireNonNull(order, "Order cannot be null");
         if (order.getStatus() == OrderStatus.SERVED) {
             throw new IllegalStateException("Cannot cancel an order that has already been SERVED");
         }
+        Chef chef = order.getAssignedChef();
+        if (chef != null) {
+            chef.completeOrder(order);
+        }
+
         OrderStatus oldStatus = order.getStatus();
         order.updateStatus(OrderStatus.CANCELLED);
         eventPublisher.publishStatusChanged(new OrderStatusChangedEvent(

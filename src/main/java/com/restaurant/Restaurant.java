@@ -13,6 +13,8 @@ import com.restaurant.model.Order;
 import com.restaurant.model.Table;
 import com.restaurant.model.Waiter;
 import com.restaurant.service.KitchenService;
+import com.restaurant.service.StaffManager;
+import com.restaurant.service.TableManager;
 import com.restaurant.service.VisitManager;
 
 import java.util.ArrayList;
@@ -25,9 +27,8 @@ public class Restaurant {
     private final Address address;
     private final List<CuisineType> cuisines;
     private final Menu menu;
-    private final List<Waiter> waiters;
-    private final List<Chef> chefs;
-    private final List<Table> tables;
+    private final StaffManager staffManager;
+    private final TableManager tableManager;
     private final VisitManager visitManager;
     private final KitchenService kitchenService;
     private final OrderEventPublisher eventPublisher;
@@ -36,9 +37,8 @@ public class Restaurant {
                       Address address,
                       List<CuisineType> cuisines,
                       Menu menu,
-                      List<Waiter> waiters,
-                      List<Chef> chefs,
-                      List<Table> tables,
+                      StaffManager staffManager,
+                      TableManager tableManager,
                       VisitManager visitManager,
                       KitchenService kitchenService,
                       OrderEventPublisher eventPublisher) {
@@ -46,9 +46,8 @@ public class Restaurant {
         this.address = Objects.requireNonNull(address, "Address cannot be null");
         this.cuisines = new ArrayList<>(Objects.requireNonNull(cuisines, "Cuisines cannot be null"));
         this.menu = Objects.requireNonNull(menu, "Menu cannot be null");
-        this.waiters = new ArrayList<>(Objects.requireNonNull(waiters, "Waiters cannot be null"));
-        this.chefs = new ArrayList<>(Objects.requireNonNull(chefs, "Chefs cannot be null"));
-        this.tables = new ArrayList<>(Objects.requireNonNull(tables, "Tables cannot be null"));
+        this.staffManager = Objects.requireNonNull(staffManager, "Staff manager cannot be null");
+        this.tableManager = Objects.requireNonNull(tableManager, "Table manager cannot be null");
         this.visitManager = Objects.requireNonNull(visitManager, "Visit manager cannot be null");
         this.kitchenService = Objects.requireNonNull(kitchenService, "Kitchen service cannot be null");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "Event publisher cannot be null");
@@ -70,16 +69,24 @@ public class Restaurant {
         return menu;
     }
 
+    public StaffManager getStaffManager() {
+        return staffManager;
+    }
+
+    public TableManager getTableManager() {
+        return tableManager;
+    }
+
     public List<Waiter> getWaiters() {
-        return Collections.unmodifiableList(waiters);
+        return staffManager.getWaiters();
     }
 
     public List<Chef> getChefs() {
-        return Collections.unmodifiableList(chefs);
+        return staffManager.getChefs();
     }
 
     public List<Table> getTables() {
-        return Collections.unmodifiableList(tables);
+        return tableManager.getTables();
     }
 
     public VisitManager getVisitManager() {
@@ -94,7 +101,16 @@ public class Restaurant {
         return eventPublisher;
     }
 
-    // High-level facade operations
+    // High-level SRP orchestration: delegates table allocation to TableManager and waiter assignment to StaffManager
+    public CustomerVisit startVisit(Customer customer, int guestCount) {
+        Table table = tableManager.allocateTable(guestCount, customer);
+        if (table == null) {
+            throw new IllegalStateException("No suitable tables available for party of " + guestCount);
+        }
+        Waiter waiter = staffManager.assignWaiter(table);
+        return visitManager.startVisit(customer, table, waiter);
+    }
+
     public CustomerVisit hostGuest(Customer customer, Table table, Waiter waiter) {
         return visitManager.startVisit(customer, table, waiter);
     }

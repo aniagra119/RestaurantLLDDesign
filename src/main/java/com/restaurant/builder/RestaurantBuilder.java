@@ -9,7 +9,11 @@ import com.restaurant.model.Menu;
 import com.restaurant.model.Table;
 import com.restaurant.model.Waiter;
 import com.restaurant.service.KitchenService;
+import com.restaurant.service.StaffManager;
+import com.restaurant.service.TableManager;
 import com.restaurant.service.VisitManager;
+import com.restaurant.strategy.table.FirstAvailableAllocationStrategy;
+import com.restaurant.strategy.table.TableAllocationStrategy;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +27,7 @@ public class RestaurantBuilder {
     private final List<Waiter> waiters = new ArrayList<>();
     private final List<Chef> chefs = new ArrayList<>();
     private final List<Table> tables = new ArrayList<>();
+    private TableAllocationStrategy tableAllocationStrategy = new FirstAvailableAllocationStrategy();
     private OrderEventPublisher eventPublisher;
 
     public RestaurantBuilder setName(String name) {
@@ -60,6 +65,11 @@ public class RestaurantBuilder {
         return this;
     }
 
+    public RestaurantBuilder setTableAllocationStrategy(TableAllocationStrategy strategy) {
+        this.tableAllocationStrategy = strategy;
+        return this;
+    }
+
     public RestaurantBuilder setEventPublisher(OrderEventPublisher publisher) {
         this.eventPublisher = publisher;
         return this;
@@ -74,7 +84,16 @@ public class RestaurantBuilder {
         VisitManager visitManager = new VisitManager(publisher);
         KitchenService kitchenService = new KitchenService(publisher);
 
-        Restaurant restaurant = new Restaurant(name, address, cuisines, menu, waiters, chefs, tables, visitManager, kitchenService, publisher);
-        return restaurant;
+        StaffManager staffManager = new StaffManager();
+        for (Waiter waiter : waiters) {
+            staffManager.addWaiter(waiter);
+        }
+        for (Chef chef : chefs) {
+            staffManager.addChef(chef);
+        }
+
+        TableManager tableManager = new TableManager(tables, tableAllocationStrategy);
+
+        return new Restaurant(name, address, cuisines, menu, staffManager, tableManager, visitManager, kitchenService, publisher);
     }
 }
