@@ -5,3 +5,4 @@ public class InvalidVisitStateException extends RuntimeException {
         super(message);
     }
 }
+

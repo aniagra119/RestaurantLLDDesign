@@ -4,3 +4,4 @@ public enum IngredientType {
     SOLID,
     LIQUID
 }
+

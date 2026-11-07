@@ -88,3 +88,4 @@ public class VisitManager {
         activeVisits.remove(visitId);
     }
 }
+

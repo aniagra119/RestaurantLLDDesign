@@ -19,3 +19,4 @@ public class SpiceLevelDecorator extends DishCustomizationDecorator {
         return spiceLevel;
     }
 }
+

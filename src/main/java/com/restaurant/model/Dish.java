@@ -19,7 +19,8 @@ public class Dish {
         this(id, name, description, type, price, recipe, KitchenStation.HOT_KITCHEN);
     }
 
-    public Dish(String id, String name, String description, DietaryType type, double price, Recipe recipe, KitchenStation targetStation) {
+    public Dish(String id, String name, String description, DietaryType type, double price, Recipe recipe,
+            KitchenStation targetStation) {
         this.id = Objects.requireNonNull(id, "Dish ID cannot be null");
         this.name = Objects.requireNonNull(name, "Dish name cannot be null");
         this.description = description;
@@ -71,8 +72,11 @@ public class Dish {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Dish dish)) return false;
+        if (this == o)
+            return true;
+        if (!(o instanceof Dish dish))
+            return false;
+
         return Objects.equals(id, dish.id);
     }
 

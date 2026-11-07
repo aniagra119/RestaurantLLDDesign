@@ -107,3 +107,4 @@ class ConcurrentVisitAndStockStressTest {
         assertEquals(0.0, cheese.getCurrentStock(), 0.001, "Final stock must be exactly 0g");
     }
 }
+

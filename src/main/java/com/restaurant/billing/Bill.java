@@ -92,3 +92,4 @@ public class Bill {
         return status == BillStatus.PAID || getRemainingAmount() <= 0.001;
     }
 }
+

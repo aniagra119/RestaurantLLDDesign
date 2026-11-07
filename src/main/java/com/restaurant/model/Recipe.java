@@ -36,8 +36,10 @@ public class Recipe {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Recipe recipe)) return false;
+        if (this == o)
+            return true;
+        if (!(o instanceof Recipe recipe))
+            return false;
         return Objects.equals(id, recipe.id);
     }
 

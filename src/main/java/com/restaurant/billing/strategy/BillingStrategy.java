@@ -8,3 +8,4 @@ import java.util.List;
 public interface BillingStrategy {
     Bill calculateBill(String billId, List<Order> orders);
 }
+

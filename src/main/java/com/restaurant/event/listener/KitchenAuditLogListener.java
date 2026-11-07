@@ -26,3 +26,4 @@ public class KitchenAuditLogListener implements OrderEventListener {
                 + event.getPreviousStatus() + " to " + event.getNewStatus());
     }
 }
+
