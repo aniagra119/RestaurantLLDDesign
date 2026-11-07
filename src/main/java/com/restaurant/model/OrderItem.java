@@ -1,32 +1,35 @@
 package com.restaurant.model;
 
-import com.restaurant.decorator.PreparedItem;
+import com.restaurant.customization.OrderableItem;
 
-import java.math.BigDecimal;
 import java.util.Objects;
 
 public class OrderItem {
-    private final String id;
-    private final PreparedItem preparedItem;
+    private final String itemId;
+    private final OrderableItem item;
     private final int quantity;
     private final String specialInstructions;
 
-    public OrderItem(String id, PreparedItem preparedItem, int quantity, String specialInstructions) {
-        this.id = Objects.requireNonNull(id, "OrderItem ID cannot be null");
-        this.preparedItem = Objects.requireNonNull(preparedItem, "PreparedItem cannot be null");
+    public OrderItem(String itemId, OrderableItem item, int quantity) {
+        this(itemId, item, quantity, "");
+    }
+
+    public OrderItem(String itemId, OrderableItem item, int quantity, String specialInstructions) {
+        this.itemId = Objects.requireNonNull(itemId, "Item ID cannot be null");
+        this.item = Objects.requireNonNull(item, "Orderable item cannot be null");
         if (quantity <= 0) {
-            throw new IllegalArgumentException("Quantity must be greater than zero");
+            throw new IllegalArgumentException("Quantity must be positive");
         }
         this.quantity = quantity;
         this.specialInstructions = specialInstructions != null ? specialInstructions : "";
     }
 
-    public String getId() {
-        return id;
+    public String getItemId() {
+        return itemId;
     }
 
-    public PreparedItem getPreparedItem() {
-        return preparedItem;
+    public OrderableItem getItem() {
+        return item;
     }
 
     public int getQuantity() {
@@ -37,8 +40,7 @@ public class OrderItem {
         return specialInstructions;
     }
 
-    public BigDecimal getSubtotal() {
-        return preparedItem.getPrice().multiply(BigDecimal.valueOf(quantity));
+    public double getSubtotal() {
+        return item.getPrice() * quantity;
     }
 }
-

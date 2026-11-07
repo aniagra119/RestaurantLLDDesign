@@ -9,23 +9,28 @@ public class Dish {
     private final String id;
     private final String name;
     private final String description;
-    private final DietaryType dietaryType;
-    private final Cuisine cuisine;
+    private final DietaryType type;
+    private final double price;
     private final Recipe recipe;
     private final KitchenStation targetStation;
+    private boolean isAvailable;
 
-    public Dish(String id, String name, String description, DietaryType dietaryType, Cuisine cuisine, Recipe recipe) {
-        this(id, name, description, dietaryType, cuisine, recipe, KitchenStation.HOT_KITCHEN);
+    public Dish(String id, String name, String description, DietaryType type, double price, Recipe recipe) {
+        this(id, name, description, type, price, recipe, KitchenStation.HOT_KITCHEN);
     }
 
-    public Dish(String id, String name, String description, DietaryType dietaryType, Cuisine cuisine, Recipe recipe, KitchenStation targetStation) {
+    public Dish(String id, String name, String description, DietaryType type, double price, Recipe recipe, KitchenStation targetStation) {
         this.id = Objects.requireNonNull(id, "Dish ID cannot be null");
         this.name = Objects.requireNonNull(name, "Dish name cannot be null");
         this.description = description;
-        this.dietaryType = Objects.requireNonNull(dietaryType, "Dietary type cannot be null");
-        this.cuisine = Objects.requireNonNull(cuisine, "Cuisine cannot be null");
+        this.type = Objects.requireNonNull(type, "Dietary type cannot be null");
+        if (price < 0) {
+            throw new IllegalArgumentException("Dish price cannot be negative");
+        }
+        this.price = price;
         this.recipe = Objects.requireNonNull(recipe, "Recipe cannot be null");
         this.targetStation = targetStation != null ? targetStation : KitchenStation.HOT_KITCHEN;
+        this.isAvailable = true;
     }
 
     public String getId() {
@@ -40,12 +45,12 @@ public class Dish {
         return description;
     }
 
-    public DietaryType getDietaryType() {
-        return dietaryType;
+    public DietaryType getType() {
+        return type;
     }
 
-    public Cuisine getCuisine() {
-        return cuisine;
+    public double getPrice() {
+        return price;
     }
 
     public Recipe getRecipe() {
@@ -54,6 +59,14 @@ public class Dish {
 
     public KitchenStation getTargetStation() {
         return targetStation;
+    }
+
+    public boolean isAvailable() {
+        return isAvailable;
+    }
+
+    public void setAvailable(boolean available) {
+        isAvailable = available;
     }
 
     @Override

@@ -1,24 +1,27 @@
 package com.restaurant.model;
 
-import com.restaurant.enums.Unit;
+import com.restaurant.enums.MeasurementUnit;
 
 import java.util.Objects;
 
 public class RecipeIngredient {
     private final Ingredient ingredient;
     private final double amount;
-    private final Unit unit;
+    private final MeasurementUnit unit;
 
-    public RecipeIngredient(Ingredient ingredient, double amount, Unit unit) {
+    public RecipeIngredient(Ingredient ingredient, double amount, MeasurementUnit unit) {
         this.ingredient = Objects.requireNonNull(ingredient, "Ingredient cannot be null");
-        this.unit = Objects.requireNonNull(unit, "Unit cannot be null");
         if (amount <= 0) {
             throw new IllegalArgumentException("Amount must be positive");
         }
-        if (!ingredient.getBaseUnit().isCompatibleWith(unit)) {
-            throw new IllegalArgumentException("Unit " + unit + " is dimensionally incompatible with ingredient base unit " + ingredient.getBaseUnit());
-        }
         this.amount = amount;
+        this.unit = Objects.requireNonNull(unit, "Measurement unit cannot be null");
+
+        if (ingredient.getUnit() != unit) {
+            throw new IllegalArgumentException(String.format(
+                    "Unit mismatch: Ingredient %s uses %s, but recipe requested %s",
+                    ingredient.getName(), ingredient.getUnit(), unit));
+        }
     }
 
     public Ingredient getIngredient() {
@@ -29,12 +32,7 @@ public class RecipeIngredient {
         return amount;
     }
 
-    public Unit getUnit() {
+    public MeasurementUnit getUnit() {
         return unit;
     }
-
-    public double getBaseAmount() {
-        return amount * unit.getConversionFactorToBase();
-    }
 }
-

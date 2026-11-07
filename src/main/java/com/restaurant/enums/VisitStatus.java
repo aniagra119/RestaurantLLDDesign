@@ -1,9 +1,8 @@
 package com.restaurant.enums;
 
-public enum SessionStatus {
+public enum VisitStatus {
     ACTIVE,
     BILLED,
-    SETTLED,
+    COMPLETED,
     CANCELLED
 }
-

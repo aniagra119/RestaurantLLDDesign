@@ -1,10 +1,9 @@
 package com.restaurant.enums;
 
 public enum OrderStatus {
-    RECEIVED,
+    PLACED,
     PREPARING,
     READY,
     SERVED,
     CANCELLED
 }
-
