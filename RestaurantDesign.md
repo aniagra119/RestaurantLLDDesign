@@ -12,6 +12,8 @@ sequenceDiagram
     actor Customer as Customer (Anirudh)
     actor Waiter as Waiter (John Doe - Senior)
     participant R as Restaurant Facade
+    participant TM as TableManager
+    participant SM as StaffManager
     participant VM as VisitManager
     participant CV as CustomerVisit
     participant DEC as DishCustomizationDecorator
@@ -20,9 +22,14 @@ sequenceDiagram
     participant HK as KitchenDisplayListener (Hot Kitchen)
     participant NOTIF as CustomerNotificationListener
 
-    Note over Customer, Waiter: Customer arrives and is seated at Table-4
-    Customer ->> Waiter: Request table for dining
-    Waiter ->> R: hostGuest(Customer, Table-4, Waiter)
+    Note over Customer, Waiter: Customer arrives; party of 4 seated via Strategy
+    Customer ->> R: startVisit(Customer, 4)
+    R ->> TM: allocateTable(4, Customer)
+    Note over TM: OptimalFitAllocationStrategy selects Table-4 (Capacity: 4)
+    TM -->> R: Table-4
+    R ->> SM: assignWaiter(Table-4)
+    Note over SM: Assigns least-loaded Waiter (John Doe)
+    SM -->> R: Waiter
     R ->> VM: startVisit(Customer, Table-4, Waiter)
     VM ->> Table-4: markOccupied()
     VM ->> Waiter: assignTable(Table-4)
@@ -64,8 +71,9 @@ sequenceDiagram
     participant EP as OrderEventPublisher
     participant AUDIT as KitchenAuditLogListener
 
-    Note over Chef, KS: Chef claims order ticket and begins preparation
+    Note over Chef, KS: Chef claims order ticket; checks concurrent order capacity
     Chef ->> KS: startPreparingOrder(ORD, Chef)
+    Note over Chef: acceptOrder(ORD) validates currentOrders < maxCapacity (3)
     loop For each OrderItem in Order
         KS ->> D: extractBaseDish(item)
         D ->> REC: getRecipe()
@@ -81,6 +89,7 @@ sequenceDiagram
 
     Note over Chef, KS: Cooking completed; dish ready for delivery
     Chef ->> KS: markOrderReady(ORD)
+    Note over Chef: completeOrder(ORD) frees chef capacity
     KS ->> ORD: updateStatus(READY)
     KS ->> EP: publishStatusChanged(OrderStatusChangedEvent: PREPARING -> READY)
 
@@ -91,7 +100,7 @@ sequenceDiagram
 
 ---
 
-### 1.3 Split Payment & Terminal Settlement Sequence
+### 1.3 Split Payment, Gateway Processing & Feedback Sequence
 ```mermaid
 sequenceDiagram
     autonumber
@@ -102,8 +111,9 @@ sequenceDiagram
     participant CV as CustomerVisit
     participant STRAT as StandardBillingStrategy
     participant B as Bill
-    participant P1 as Payment 1 (UPI)
-    participant P2 as Payment 2 (Credit Card)
+    participant PPF as PaymentProcessorFactory
+    participant CARD as CardPaymentProcessor
+    participant UPI as UPIPaymentProcessor
 
     Note over Customer, Waiter: Dining complete; guests request bill
     Customer ->> Waiter: Request final check
@@ -116,121 +126,49 @@ sequenceDiagram
 
     Note over Customer, Waiter: Split Payment: Alice pays ₹1000 via Card, Bob pays ₹840 via UPI
     Customer ->> Waiter: Present Credit Card for ₹1000
-    Waiter ->> R: makePayment(visitId, new Payment("P1", 1000, CARD))
-    R ->> VM: settlePayment(visitId, P1)
-    VM ->> CV: makePayment(P1)
+    Waiter ->> PPF: getProcessor(CREDIT_CARD)
+    PPF -->> Waiter: CardPaymentProcessor
+    Waiter ->> CARD: processPayment(Payment P1: 1000)
+    CARD -->> Waiter: PaymentResult.success("CARD-TXN-101")
+    Waiter ->> CV: makePayment(P1)
     CV ->> B: addPayment(P1)
     Note over B: Remaining: ₹840; Status: PARTIALLY_PAID
 
     Customer ->> Waiter: Scan UPI QR for remaining ₹840
-    Waiter ->> R: makePayment(visitId, new Payment("P2", 840, UPI))
-    R ->> VM: settlePayment(visitId, P2)
-    VM ->> CV: makePayment(P2)
+    Waiter ->> PPF: getProcessor(UPI)
+    PPF -->> Waiter: UPIPaymentProcessor
+    Waiter ->> UPI: processPayment(Payment P2: 840)
+    UPI -->> Waiter: PaymentResult.success("UPI-TXN-202")
+    Waiter ->> CV: makePayment(P2)
     CV ->> B: addPayment(P2)
     Note over B: Remaining: ₹0; Status: PAID (isFullyPaid == true)
 
-    Note over Waiter, VM: Session Settlement & Resource Reclamation
+    Note over Waiter, VM: Session Settlement, Feedback & Resource Reclamation
     Waiter ->> VM: endVisit(visitId)
     VM ->> CV: completeVisit()
     CV ->> Table-4: markAvailable()
     CV ->> Waiter: releaseTable(Table-4)
-    Note over VM: Table-4 freed for next party; Waiter capacity reclaimed
+    Customer ->> R: submitFeedback(new CustomerFeedback("FB-1", visit, 5, "Superb!"))
 ```
 
 ---
 
-## 2. System Requirements & Domain Scope
-
-### 2.1 Problem Statement
-Design an enterprise-grade Restaurant Management System capable of handling high-concurrency table seatings, multi-round guest dining orders, dynamic dish customizations, real-time Kitchen Display System (KDS) event routing, physical ingredient stock depletion (enforcing solids in grams and liquids in milliliters), staff hierarchical responsibility tracking (`WaiterLevel`, `ChefLevel`), and flexible itemized billing with split-payment settlement.
-
-### 2.2 Core Capabilities
-1. **Restaurant Aggregate (Facade Pattern)**: Unified entry point encapsulating catalog, physical tables, employees, active visits, and kitchen subsystems.
-2. **Explicit Staff Levels**:
-   - `Waiter`: Managed via `WaiterLevel` (`JUNIOR`, `SENIOR`, `MANAGER`) with live assigned table collections.
-   - `Chef`: Managed via `ChefLevel` (`COMMIS_CHEF`, `SOUS_CHEF`, `HEAD_CHEF`, `EXECUTIVE_CHEF`) mapped to specialized kitchen stations.
-3. **Menu & Section Hierarchy**: Menus divided into logical courses/sections (`Soups`, `Appetizers`, `Pastas & Mains`, `Desserts`) holding master `Dish` entries.
-4. **Dish Definition**: Master culinary specification with `name`, `description`, `type` (`VEG`, `NON_VEG`, `VEGAN`), `price`, `targetStation`, and `recipe`.
-5. **Rigorous Physical Units**:
-   - Solids strictly measured in **`MeasurementUnit.GRAMS`**.
-   - Liquids / semi-liquids strictly measured in **`MeasurementUnit.MILLILITERS`**.
-   - Type-enforced via `IngredientType.SOLID` vs `IngredientType.LIQUID`.
-6. **Dynamic Dish Customization (Decorator Pattern)**: Composable runtime modification (`BaseDishItem`, `ExtraToppingDecorator`, `SpiceLevelDecorator`, `ProteinDecorator`) avoiding Cartesian subclass explosion ($4 \times 4 \times 3 = 48$ variants).
-7. **Customer Visit Lifecycle (State Pattern)**: Tracks multi-round dining sessions:
-   $$\text{ACTIVE} \xrightarrow{\text{generateBill()}} \text{BILLED} \xrightarrow{\text{all payments settled}} \text{COMPLETED}$$
-8. **Kitchen Display System (Observer Pattern)**: Event-driven pub-sub routing tickets to station display screens (`KitchenDisplayListener`), customer notification bridges (`CustomerNotificationListener`), and audit logs (`KitchenAuditLogListener`).
-9. **Pluggable Financial Calculation (Strategy Pattern)**: Configurable tax and service charge calculations (`StandardBillingStrategy`) and promotional discount deductions (`DiscountedBillingStrategy`).
-10. **Split-Payment Ledger**: Itemized invoice (`Bill`) supporting partial settlements across heterogeneous payment instruments (`CASH`, `UPI`, `CREDIT_CARD`, `DEBIT_CARD`).
-11. **Fluent Aggregate Builders (Builder Pattern)**: `RestaurantBuilder`, `MenuBuilder`, and `RecipeBuilder` ensuring valid aggregate assembly with fail-fast invariants.
-
----
-
-## 3. Design Patterns Applied & Rationale
+## 2. Design Patterns Applied & Rationale
 
 | Pattern | Category | Where Applied | Concrete Architectural Justification |
 | :--- | :--- | :--- | :--- |
-| **Facade** | Structural | `Restaurant` | Hides complex subsystem orchestration (`VisitManager`, `KitchenService`, `Menu`, `OrderEventPublisher`) behind high-level operations. |
-| **Strategy** | Behavioral | `BillingStrategy`<br>`StandardBillingStrategy`<br>`DiscountedBillingStrategy` | Decouples financial mathematics (tax rates, service fees, loyalty discounts) from visit lifecycle, allowing instant pricing policy swaps. |
-| **Observer** | Behavioral | `OrderEventPublisher`<br>`OrderEventListener`<br>`KitchenDisplayListener` | Decouples core order placement from peripheral station displays, guest SMS alerts, and compliance audit loggers. |
+| **Facade** | Structural | `Restaurant` | Coordinates specialized managers (`StaffManager`, `TableManager`, `VisitManager`, `KitchenService`) behind clean facade entry points (Strict SRP). |
+| **Strategy (x2)** | Behavioral | `BillingStrategy`<br>`TableAllocationStrategy` | **1.** Swaps financial algorithms (Standard Tax/Service vs Discounted).<br>**2.** Swaps table allocation heuristics (`OptimalFitAllocationStrategy` minimizing empty covers vs `FirstAvailableAllocationStrategy`). |
+| **Observer** | Behavioral | `OrderEventPublisher`<br>`OrderEventListener`<br>`KitchenDisplayListener` | Decouples core order placement from station display screens, guest table notifications, and compliance audit logs. |
 | **Decorator** | Structural | `OrderableItem`<br>`BaseDishItem`<br>`DishCustomizationDecorator` | Dynamically stacks toppings, spice modifications, and protein upgrades onto dishes at runtime while recalculating pricing and dietary tags. |
-| **State** | Behavioral | `CustomerVisit`<br>`VisitStatus` | Enforces dining lifecycle invariants (cannot add orders once billed; cannot close visit with outstanding balance; frees table on completion). |
-| **Builder** | Creational | `RestaurantBuilder`<br>`MenuBuilder`<br>`RecipeBuilder` | Assembles complex nested aggregates cleanly with invariant validation, eliminating telescoping constructor antipatterns. |
+| **Composite** | Structural | `MenuComponent`<br>`Menu`<br>`MenuSection` | Treats entire menus and individual course sections uniformly, allowing recursive menu traversal and standardized dish queries. |
+| **Registry / Factory** | Creational / Behavioral | `PaymentProcessorFactory`<br>`PaymentProcessor` | Maps `PaymentMethod` to domain `PaymentProcessor` abstractions using the Registry Pattern, completely decoupled from vendor SDK classes (100% DIP & OCP). |
+| **State** | Behavioral | `CustomerVisit`<br>`VisitStatus`<br>`Reservation` | Enforces dining lifecycle invariants (`ACTIVE` $\to$ `BILLED` $\to$ `COMPLETED`) and advance booking states (`PENDING` $\to$ `CONFIRMED` $\to$ `COMPLETED`). |
+| **Builder (x3)** | Creational | `RestaurantBuilder`<br>`MenuBuilder`<br>`RecipeBuilder` | Assembles complex nested aggregates cleanly with invariant validation, eliminating telescoping constructor antipatterns. |
 
 ---
 
-## 4. Architectural System Topology
-
-```mermaid
-graph TD
-    Client([Guest / Attendant / Manager]) -->|Interacts with| R[Restaurant Facade]
-    Builder[RestaurantBuilder] -->|Assembles| R
-
-    subgraph Facade & Subsystem Controllers
-        R --> VM[VisitManager - Dining Visits & Tables]
-        R --> KS[KitchenService - Recipe Preparation & Stock]
-        R --> M[Menu - Catalog & Sections]
-        R --> EP[OrderEventPublisher - KDS Event Bus]
-    end
-
-    subgraph Staff Hierarchy
-        R --> W[Waiter - Junior / Senior / Manager]
-        R --> C[Chef - Commis / Sous / Head / Executive]
-    end
-
-    subgraph Menu & Culinary Domain
-        M --> MS[MenuSection - Soups / Appetizers / Mains]
-        MS --> D[Dish - Culinary Spec & Base Price]
-        D --> REC[Recipe - Prep Instructions]
-        REC --> RI[RecipeIngredient - Quantity & Unit]
-        RI --> ING[Ingredient - Solid in g, Liquid in ml]
-    end
-
-    subgraph Customer Visit & Customization
-        VM --> CV[CustomerVisit - State Machine]
-        CV --> ORD1[Order Round 1: Appetizers]
-        CV --> ORD2[Order Round 2: Mains]
-        ORD1 --> OI[OrderItem]
-        OI --> DEC[DishCustomizationDecorator - Topping / Spice / Protein]
-    end
-
-    subgraph Kitchen Display System KDS
-        EP -->|OrderPlacedEvent| HK[KitchenDisplayListener - Hot Kitchen]
-        EP -->|OrderPlacedEvent| CS[KitchenDisplayListener - Cold Station]
-        EP -->|OrderPlacedEvent| NOTIF[CustomerNotificationListener - Table Alerts]
-        EP -->|All Events| AUDIT[KitchenAuditLogListener - Event Trail]
-    end
-
-    subgraph Settlement & Split Billing
-        CV --> BILL[Bill - Itemized Ledger]
-        BILL --> STRAT[BillingStrategy - Standard / Discounted]
-        BILL --> PAY1[Payment 1: Card Partial]
-        BILL --> PAY2[Payment 2: UPI Remainder]
-    end
-```
-
----
-
-## 5. Master UML Class Diagram
+## 3. Master UML Class Diagram
 
 ```mermaid
 classDiagram
@@ -307,6 +245,15 @@ classDiagram
         CANCELLED
     }
 
+    class ReservationStatus {
+        <<enumeration>>
+        PENDING
+        CONFIRMED
+        CANCELLED
+        COMPLETED
+        NO_SHOW
+    }
+
     class BillStatus {
         <<enumeration>>
         UNPAID
@@ -323,6 +270,18 @@ classDiagram
         UPI
     }
 
+    %% Base Entity
+    class BaseEntity {
+        <<abstract>>
+        #String id
+        #LocalDateTime createdAt
+        #LocalDateTime updatedAt
+        +getId() String
+        +getCreatedAt() LocalDateTime
+        +getUpdatedAt() LocalDateTime
+        #markUpdated() void
+    }
+
     %% Models
     class Address {
         -String street
@@ -333,7 +292,6 @@ classDiagram
     }
 
     class Customer {
-        -String id
         -String name
         -String phoneNumber
         -String email
@@ -347,38 +305,35 @@ classDiagram
         +markAvailable() void
     }
 
-    class Ingredient {
-        -String id
-        -String name
-        -IngredientType type
-        -MeasurementUnit unit
-        -double currentStock
-        +addStock(double amount) void
-        +deductStock(double amount) void
+    class Reservation {
+        -Customer customer
+        -Table table
+        -LocalDateTime reservationDateTime
+        -int guestCount
+        -ReservationStatus status
+        -String specialRequests
+        +confirm() void
+        +cancel() void
+        +markCompleted() void
     }
 
-    class RecipeIngredient {
-        -Ingredient ingredient
-        -double amount
-        -MeasurementUnit unit
+    class CustomerFeedback {
+        -CustomerVisit visit
+        -int rating
+        -String comments
     }
 
-    class Recipe {
-        -String id
-        -List~String~ instructions
-        -int prepTimeMinutes
-        -List~RecipeIngredient~ ingredients
-    }
+    BaseEntity <|-- Customer
+    BaseEntity <|-- Table
+    BaseEntity <|-- Reservation
+    BaseEntity <|-- CustomerFeedback
 
-    class Dish {
-        -String id
-        -String name
-        -String description
-        -DietaryType type
-        -double price
-        -Recipe recipe
-        -KitchenStation targetStation
-        -boolean isAvailable
+    %% Composite Menu Hierarchy
+    class MenuComponent {
+        <<interface>>
+        +getName() String
+        +getAllDishes() List~Dish~
+        +display(int indentLevel) void
     }
 
     class MenuSection {
@@ -396,10 +351,14 @@ classDiagram
         +findDishByName(String name) Optional~Dish~
     }
 
-    %% Staff
+    MenuComponent <|.. MenuSection
+    MenuComponent <|.. Menu
+    Menu *-- "1..*" MenuSection
+    MenuSection *-- "1..*" Dish
+
+    %% Staff & Concurrency Limits
     class Employee {
         <<abstract>>
-        #String id
         #String name
         #String email
         #String phoneNumber
@@ -415,8 +374,14 @@ classDiagram
     class Chef {
         -ChefLevel level
         -KitchenStation primaryStation
+        -List~Order~ currentOrders
+        -int maxConcurrentOrders
+        +canAcceptOrder() boolean
+        +acceptOrder(Order order) void
+        +completeOrder(Order order) void
     }
 
+    BaseEntity <|-- Employee
     Employee <|-- Waiter
     Employee <|-- Chef
     Waiter --> WaiterLevel
@@ -433,17 +398,11 @@ classDiagram
 
     class BaseDishItem {
         -Dish dish
-        +getName() String
-        +getPrice() double
-        +getDietaryType() DietaryType
     }
 
     class DishCustomizationDecorator {
         <<abstract>>
         #OrderableItem wrappedItem
-        +getName() String
-        +getPrice() double
-        +getDietaryType() DietaryType
     }
 
     class ExtraToppingDecorator {
@@ -477,17 +436,16 @@ classDiagram
     }
 
     class Order {
-        -String orderId
         -List~OrderItem~ items
         -OrderStatus status
-        -long placedTimestamp
+        -Chef assignedChef
         +addItem(OrderItem item) void
+        +assignToChef(Chef chef) void
         +updateStatus(OrderStatus status) void
         +calculateSubtotal() double
     }
 
     class CustomerVisit {
-        -String visitId
         -Table table
         -Customer customer
         -Waiter waiter
@@ -500,12 +458,62 @@ classDiagram
         +completeVisit() void
     }
 
+    BaseEntity <|-- Order
+    BaseEntity <|-- CustomerVisit
     OrderItem o-- OrderableItem
     Order *-- "1..*" OrderItem
+    Order o-- Chef
     CustomerVisit o-- Table
     CustomerVisit o-- Customer
     CustomerVisit o-- Waiter
     CustomerVisit *-- "1..*" Order
+
+    %% Table Allocation Strategy
+    class TableAllocationStrategy {
+        <<interface>>
+        +allocateTable(List~Table~ availableTables, int guestCount, Customer customer) Table
+    }
+
+    class FirstAvailableAllocationStrategy {
+        +allocateTable(...) Table
+    }
+
+    class OptimalFitAllocationStrategy {
+        +allocateTable(...) Table
+    }
+
+    TableAllocationStrategy <|.. FirstAvailableAllocationStrategy
+    TableAllocationStrategy <|.. OptimalFitAllocationStrategy
+
+    %% Payment Gateway SPI
+    class PaymentProcessor {
+        <<interface>>
+        +processPayment(Payment payment) PaymentResult
+        +refund(Payment payment, double amount) PaymentResult
+    }
+
+    class CashPaymentProcessor {
+        +processPayment(Payment payment) PaymentResult
+    }
+
+    class CardPaymentProcessor {
+        +processPayment(Payment payment) PaymentResult
+    }
+
+    class UPIPaymentProcessor {
+        +processPayment(Payment payment) PaymentResult
+    }
+
+    class PaymentProcessorFactory {
+        -Map~PaymentMethod, PaymentProcessor~ registry
+        +getProcessor(PaymentMethod method) PaymentProcessor
+        +registerProcessor(PaymentMethod method, PaymentProcessor processor) void
+    }
+
+    PaymentProcessor <|.. CashPaymentProcessor
+    PaymentProcessor <|.. CardPaymentProcessor
+    PaymentProcessor <|.. UPIPaymentProcessor
+    PaymentProcessorFactory o-- PaymentProcessor
 
     %% Billing & Split Payment
     class Payment {
@@ -552,61 +560,53 @@ classDiagram
     CustomerVisit ..> BillingStrategy
     Bill *-- "0..*" Payment
 
-    %% Event Bus / Observer
-    class OrderEvent {
-        <<abstract>>
-        -String eventId
-        -long timestamp
+    %% Specialized Managers (SRP)
+    class StaffManager {
+        -List~Waiter~ waiters
+        -List~Chef~ chefs
+        +assignWaiter(Table table) Waiter
+        +findAvailableChef(KitchenStation station) Optional~Chef~
     }
 
-    class OrderPlacedEvent {
-        -CustomerVisit visit
-        -Order order
+    class TableManager {
+        -List~Table~ tables
+        -TableAllocationStrategy allocationStrategy
+        +allocateTable(int guestCount, Customer customer) Table
+        +setAllocationStrategy(TableAllocationStrategy strategy) void
     }
 
-    class OrderStatusChangedEvent {
-        -Order order
-        -OrderStatus previousStatus
-        -OrderStatus newStatus
+    class VisitManager {
+        -Map~String, CustomerVisit~ activeVisits
+        +startVisit(Customer customer, Table table, Waiter waiter) CustomerVisit
+        +placeOrder(String visitId, Order order) void
+        +generateBill(String visitId, BillingStrategy strategy) Bill
     }
 
-    class OrderEventListener {
-        <<interface>>
-        +onOrderPlaced(OrderPlacedEvent event) void
-        +onOrderStatusChanged(OrderStatusChangedEvent event) void
-    }
-
-    class OrderEventPublisher {
-        -List~OrderEventListener~ listeners
-        +subscribe(OrderEventListener listener) void
-        +unsubscribe(OrderEventListener listener) void
-        +publishOrderPlaced(OrderPlacedEvent event) void
-        +publishStatusChanged(OrderStatusChangedEvent event) void
-    }
-
-    OrderEvent <|-- OrderPlacedEvent
-    OrderEvent <|-- OrderStatusChangedEvent
-    OrderEventPublisher o-- "0..*" OrderEventListener
-
-    %% Restaurant Facade
+    %% Restaurant Facade Coordinator
     class Restaurant {
         -String name
         -Address address
         -List~CuisineType~ cuisines
         -Menu menu
-        -List~Waiter~ waiters
-        -List~Chef~ chefs
-        -List~Table~ tables
+        -StaffManager staffManager
+        -TableManager tableManager
         -VisitManager visitManager
         -KitchenService kitchenService
-        +hostGuest(Customer customer, Table table, Waiter waiter) CustomerVisit
+        -OrderEventPublisher eventPublisher
+        +startVisit(Customer customer, int guestCount) CustomerVisit
         +placeOrder(String visitId, Order order) void
         +generateBill(String visitId, BillingStrategy strategy) Bill
     }
 
     Restaurant *-- Address
     Restaurant *-- Menu
-    Restaurant o-- "1..*" Waiter
-    Restaurant o-- "1..*" Chef
-    Restaurant *-- "1..*" Table
+    Restaurant *-- StaffManager
+    Restaurant *-- TableManager
+    Restaurant *-- VisitManager
+    Restaurant *-- KitchenService
+    Restaurant *-- OrderEventPublisher
+    TableManager o-- TableAllocationStrategy
+    TableManager o-- "1..*" Table
+    StaffManager o-- "1..*" Waiter
+    StaffManager o-- "1..*" Chef
 ```
